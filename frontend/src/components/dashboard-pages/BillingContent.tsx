@@ -1,33 +1,56 @@
-import { useState } from "react";
-import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { loadRazorpayScript } from "@/lib/loadRazorpay";
+import { toast } from "sonner";
+import {
+  fetchPlans,
+  fetchActiveSubscription,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  createStripeCheckout,
+  clearRazorpayOrder,
+  type Gateway,
+  type Plan as ApiPlan,
+} from "@/store/slices/billingSlice";
+
+// NOTE: replace `any` with your real RootState / AppDispatch types if
+// you have typed hooks (useAppDispatch / useAppSelector) set up.
+type RootState = any;
+type AppDispatch = any;
 
 type BillingCycle = "monthly" | "yearly";
 
-const plans = [
+// Fallback demo data so the page still renders something sensible if
+// the plans API hasn't been hit yet / has no data in dev.
+const fallbackPlans: ApiPlan[] = [
   {
-    id: "free",
+    _id: "free",
     name: "Free",
     tagline: "For trying things out",
-    priceMonthly: 0,
-    priceYearly: 0,
+    price: 0,
+    currency: "INR",
+    durationDays: 36500,
+    isActive: true,
     features: [
       "Unlimited static QR codes",
       "All QR types (vCard, Wi-Fi, WhatsApp)",
       "PNG & SVG downloads",
       "5 dynamic QRs",
     ],
-    limits: { dynamic: 5, scans: "1k / month" },
   },
   {
-    id: "pro",
+    _id: "pro",
     name: "Pro",
     tagline: "For small businesses",
-    priceMonthly: 299,
-    priceYearly: 2990,
+    price: 299,
+    currency: "INR",
+    durationDays: 30,
+    isActive: true,
     features: [
       "Unlimited dynamic QR codes",
       "Real-time scan analytics",
@@ -36,15 +59,15 @@ const plans = [
       "PDF + high-res exports",
       "Priority email support",
     ],
-    limits: { dynamic: "Unlimited", scans: "100k / month" },
-    popular: true,
   },
   {
-    id: "business",
+    _id: "business",
     name: "Business",
     tagline: "For teams & brands",
-    priceMonthly: 999,
-    priceYearly: 9990,
+    price: 999,
+    currency: "INR",
+    durationDays: 30,
+    isActive: true,
     features: [
       "Team collaboration (5 seats)",
       "Advanced analytics & exports",
@@ -52,17 +75,158 @@ const plans = [
       "API access",
       "Dedicated manager",
     ],
-    limits: { dynamic: "Unlimited", scans: "1M / month" },
   },
 ];
 
-const currentPlanId = "free";
 const usage = { used: 5, total: 5 };
 
+function GatewayPickerModal({
+  plan,
+  onClose,
+  onChoose,
+  loading,
+}: {
+  plan: ApiPlan;
+  onClose: () => void;
+  onChoose: (gateway: Gateway) => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-card border border-border/60 rounded-2xl p-6 w-full max-w-sm shadow-xl relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <h3 className="text-base font-semibold font-heading text-foreground">
+          Pay for {plan.name}
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          Choose a payment method to continue. (Test mode — no real charge.)
+        </p>
+
+        <div className="mt-5 space-y-2.5">
+          <Button
+            disabled={loading}
+            onClick={() => onChoose("razorpay")}
+            className="w-full h-11 rounded-xl bg-[#0f172a] hover:bg-[#0f172a]/90 text-white justify-between px-4"
+          >
+            Pay with Razorpay
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+          </Button>
+          <Button
+            disabled={loading}
+            onClick={() => onChoose("stripe")}
+            variant="outline"
+            className="w-full h-11 rounded-xl justify-between px-4"
+          >
+            Pay with Stripe
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BillingInner() {
+  const dispatch = useDispatch<AppDispatch>();
+  const { plans: apiPlans, activeSubscription, razorpayOrder, checkoutLoading } = useSelector(
+    (state: RootState) => state.billing
+  );
+
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
+  const [pickerPlan, setPickerPlan] = useState<ApiPlan | null>(null);
+
+  const hasRealPlans = apiPlans && apiPlans.length > 0;
+  const plans = hasRealPlans ? apiPlans : fallbackPlans;
+  const currentPlanId =
+    typeof activeSubscription?.plan === "string"
+      ? activeSubscription.plan
+      : activeSubscription?.plan?._id ?? "free";
+
+  useEffect(() => {
+    dispatch(fetchPlans());
+    dispatch(fetchActiveSubscription());
+
+    // Handle Stripe redirect back from the hosted checkout page.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("stripe") === "success") {
+      toast.success("Payment received — activating your plan…");
+      dispatch(fetchActiveSubscription());
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("stripe") === "cancelled") {
+      toast("Checkout cancelled", { description: "No charge was made." });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [dispatch]);
+
   const usagePct = Math.min(100, (usage.used / usage.total) * 100);
   const nearLimit = usagePct >= 80;
+
+  async function handleRazorpay(plan: ApiPlan) {
+    const result = await dispatch(createRazorpayOrder(plan._id));
+    if (createRazorpayOrder.rejected.match(result)) return;
+
+    const order = result.payload as {
+      orderId: string;
+      amount: number;
+      currency: string;
+      keyId: string;
+      subscriptionId: string;
+    };
+
+    const loaded = await loadRazorpayScript();
+    if (!loaded) {
+      toast.error("Couldn't load Razorpay checkout. Check your connection and try again.");
+      return;
+    }
+
+    const rzp = new window.Razorpay({
+      key: order.keyId,
+      amount: order.amount,
+      currency: order.currency,
+      order_id: order.orderId,
+      name: "Your App",
+      description: `Upgrade to ${plan.name} (test mode)`,
+      theme: { color: "#0f172a" },
+      handler: async (response: any) => {
+        await dispatch(
+          verifyRazorpayPayment({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            subscriptionId: order.subscriptionId,
+          })
+        );
+        setPickerPlan(null);
+      },
+      modal: {
+        ondismiss: () => {
+          dispatch(clearRazorpayOrder());
+        },
+      },
+    });
+
+    rzp.open();
+  }
+
+  async function handleStripe(plan: ApiPlan) {
+    const result = await dispatch(createStripeCheckout(plan._id));
+    if (createStripeCheckout.rejected.match(result)) return;
+
+    const { url } = result.payload as { url: string; sessionId: string };
+    window.location.href = url; // hand off to Stripe's hosted checkout page
+  }
+
+  function handleChooseGateway(gateway: Gateway) {
+    if (!pickerPlan) return;
+    if (gateway === "razorpay") handleRazorpay(pickerPlan);
+    else handleStripe(pickerPlan);
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -76,12 +240,16 @@ function BillingInner() {
             Manage your subscription, usage and invoices.
           </p>
         </div>
-        <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] font-semibold bg-secondary border-border/60 text-muted-foreground uppercase tracking-wider">
-          Current plan · Free
+        <Badge
+          variant="outline"
+          className="rounded-full px-3 py-1 text-[11px] font-semibold bg-secondary border-border/60 text-muted-foreground uppercase tracking-wider"
+        >
+          Current plan ·{" "}
+          {plans.find((p: ApiPlan) => p._id === currentPlanId)?.name ?? "Free"}
         </Badge>
       </div>
 
-      {/* Usage card — loss aversion + goal gradient */}
+      {/* Usage card */}
       <section className="bg-card border border-border/60 rounded-2xl p-6 md:p-7 shadow-card">
         <div className="grid md:grid-cols-[1.4fr_1fr] gap-6 md:gap-10 items-center">
           <div>
@@ -141,15 +309,23 @@ function BillingInner() {
             Choose the right plan
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Upgrade or downgrade anytime. Prorated to the day.
+            {hasRealPlans
+              ? "Upgrade or downgrade anytime. Prorated to the day."
+              : "Loading plans from the server…"}
           </p>
         </div>
         <Tabs value={cycle} onValueChange={(v) => setCycle(v as BillingCycle)}>
           <TabsList className="bg-secondary p-1 rounded-full h-9">
-            <TabsTrigger value="monthly" className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm">
+            <TabsTrigger
+              value="monthly"
+              className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm"
+            >
               Monthly
             </TabsTrigger>
-            <TabsTrigger value="yearly" className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm">
+            <TabsTrigger
+              value="yearly"
+              className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm"
+            >
               Yearly
               <span className="ml-1.5 text-[10px] font-bold text-emerald">−17%</span>
             </TabsTrigger>
@@ -157,17 +333,17 @@ function BillingInner() {
         </Tabs>
       </div>
 
-      {/* Plan grid — inline, dashboard-native */}
+      {/* Plan grid */}
       <div className="grid md:grid-cols-3 gap-4">
-        {plans.map((plan) => {
-          const isCurrent = plan.id === currentPlanId;
-          const isPopular = !!plan.popular;
-          const price = cycle === "monthly" ? plan.priceMonthly : plan.priceYearly;
+        {plans.map((plan: ApiPlan, idx: number) => {
+          const isCurrent = plan._id === currentPlanId;
+          const isPopular = idx === 1; // middle plan highlighted, same as original design
+          const price = cycle === "monthly" ? plan.price : Math.round(plan.price * 10); // simple yearly approximation
           const period = cycle === "monthly" ? "/mo" : "/yr";
 
           return (
             <div
-              key={plan.id}
+              key={plan._id}
               className={`relative rounded-2xl p-6 border bg-card transition-all ${
                 isPopular
                   ? "border-emerald/40 shadow-emerald ring-1 ring-emerald/20"
@@ -186,7 +362,7 @@ function BillingInner() {
                     <h3 className="text-base font-semibold font-heading text-foreground">
                       {plan.name}
                     </h3>
-                    {plan.id === "business" && <Crown className="w-3.5 h-3.5 text-warning" />}
+                    {plan._id === "business" && <Crown className="w-3.5 h-3.5 text-warning" />}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{plan.tagline}</p>
                 </div>
@@ -201,11 +377,15 @@ function BillingInner() {
                 <span className="text-3xl font-bold font-heading text-foreground">
                   ₹{price.toLocaleString("en-IN")}
                 </span>
-                <span className="text-xs text-muted-foreground">{price === 0 ? "forever" : period}</span>
+                <span className="text-xs text-muted-foreground">
+                  {price === 0 ? "forever" : period}
+                </span>
               </div>
 
               <Button
-                disabled={isCurrent}
+                disabled={isCurrent || checkoutLoading || !hasRealPlans}
+                onClick={() => setPickerPlan(plan)}
+                title={!hasRealPlans ? "Plans are still loading — please wait" : undefined}
                 className={`w-full mt-5 h-10 rounded-full font-semibold ${
                   isPopular
                     ? "bg-emerald hover:bg-emerald/90 text-emerald-foreground"
@@ -219,7 +399,7 @@ function BillingInner() {
               </Button>
 
               <div className="mt-6 pt-5 border-t border-border/60 space-y-2.5">
-                {plan.features.map((f) => (
+                {(plan.features ?? []).map((f) => (
                   <div key={f} className="flex items-start gap-2 text-[13px]">
                     <Check className="w-4 h-4 mt-0.5 shrink-0 text-emerald" />
                     <span className="text-foreground/90">{f}</span>
@@ -256,6 +436,15 @@ function BillingInner() {
           </p>
         </div>
       </div>
+
+      {pickerPlan && (
+        <GatewayPickerModal
+          plan={pickerPlan}
+          loading={checkoutLoading}
+          onClose={() => setPickerPlan(null)}
+          onChoose={handleChooseGateway}
+        />
+      )}
     </div>
   );
 }
