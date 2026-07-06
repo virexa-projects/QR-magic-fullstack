@@ -3,18 +3,27 @@ import { Plan } from "@models/Plan.model";
 import { Subscription, SubscriptionStatus } from "@models/Subscription.model";
 import { User } from "@models/User.model";
 import { ApiError } from "@utils/ApiError";
-
+type PaymentGateway = "free" | "razorpay" | "stripe" | "manual";
 export async function listPlans() {
   return Plan.find({ isActive: true }).sort({ price: 1 }).lean();
 }
 
+export async function getPlanById(planId: string) {
+  const plan = await Plan.findById(planId);
+  if (!plan || !plan.isActive) throw ApiError.notFound("Plan not found or inactive");
+  return plan;
+}
+
+/**
+ * Legacy / manual flow — kept for backward compatibility (e.g. an admin
+ * granting a plan by hand). Marks the subscription ACTIVE immediately.
+ */
 export async function subscribeUserToPlan(
   userId: string,
   planId: string,
-  opts: { paymentGateway?: "razorpay" | "stripe" | "manual"; paymentId?: string; autoRenew?: boolean }
+  opts: {  paymentGateway?: PaymentGateway; paymentId?: string; autoRenew?: boolean }
 ) {
-  const plan = await Plan.findById(planId);
-  if (!plan || !plan.isActive) throw ApiError.notFound("Plan not found or inactive");
+  const plan = await getPlanById(planId);
 
   const startDate = new Date();
   const endDate = addDays(startDate, plan.durationDays);
@@ -32,7 +41,6 @@ export async function subscribeUserToPlan(
     autoRenew: opts.autoRenew ?? false,
   });
 
-  // Mark any previous active subscriptions as cancelled (single active plan per user)
   await Subscription.updateMany(
     { user: userId, _id: { $ne: subscription._id }, status: SubscriptionStatus.ACTIVE },
     { status: SubscriptionStatus.CANCELLED }
@@ -41,6 +49,78 @@ export async function subscribeUserToPlan(
   await User.findByIdAndUpdate(userId, { currentPlan: plan._id, planExpiresAt: endDate });
 
   return subscription;
+}
+
+/**
+ * Real-gateway flow, step 1: create a PENDING subscription row before
+ * the user has actually paid. `gatewayOrderId` is the Razorpay order id
+ * (known up front) or left undefined for Stripe (set right after the
+ * checkout session is created, since the session id is the lookup key).
+ */
+export async function createPendingSubscription(
+  userId: string,
+  planId: string,
+  gateway: "razorpay" | "stripe",
+  gatewayOrderId?: string
+) {
+  const plan = await getPlanById(planId);
+
+  const startDate = new Date();
+  const endDate = addDays(startDate, plan.durationDays);
+
+  const subscription = await Subscription.create({
+    user: userId,
+    plan: plan._id,
+    status: SubscriptionStatus.PENDING,
+    startDate,
+    endDate,
+    amount: plan.price,
+    currency: plan.currency,
+    paymentGateway: gateway,
+    gatewayOrderId,
+    autoRenew: false,
+  });
+
+  return { subscription, plan };
+}
+
+/**
+ * Real-gateway flow, step 2: called once payment is confirmed (Razorpay
+ * signature verified, or Stripe webhook received). Activates the
+ * subscription and demotes any other active subscription for the user.
+ */
+export async function activateSubscription(subscriptionId: string, paymentId: string) {
+  const sub = await Subscription.findById(subscriptionId);
+  if (!sub) throw ApiError.notFound("Subscription not found");
+
+  sub.status = SubscriptionStatus.ACTIVE;
+  sub.paymentId = paymentId;
+  sub.startDate = new Date();
+  await sub.save();
+
+  await Subscription.updateMany(
+    { user: sub.user, _id: { $ne: sub._id }, status: SubscriptionStatus.ACTIVE },
+    { status: SubscriptionStatus.CANCELLED }
+  );
+
+  await User.findByIdAndUpdate(sub.user, {
+    currentPlan: sub.plan,
+    planExpiresAt: sub.endDate,
+  });
+
+  return sub;
+}
+
+export async function markSubscriptionCancelled(subscriptionId: string) {
+  const sub = await Subscription.findById(subscriptionId);
+  if (!sub) return null;
+  sub.status = SubscriptionStatus.CANCELLED;
+  await sub.save();
+  return sub;
+}
+
+export async function findSubscriptionByGatewayOrderId(gatewayOrderId: string) {
+  return Subscription.findOne({ gatewayOrderId });
 }
 
 export async function getUserBillingHistory(userId: string) {

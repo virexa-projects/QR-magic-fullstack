@@ -12,8 +12,11 @@ export interface ISubscription extends Document {
   endDate: Date;
   amount: number;
   currency: string;
-  paymentGateway: "razorpay" | "stripe" | "manual";
+  paymentGateway: "free" | "razorpay" | "stripe" | "manual";
   paymentId?: string;
+  // Razorpay order id OR Stripe checkout session id — used to look the
+  // subscription back up when the gateway calls back (verify / webhook).
+  gatewayOrderId?: string;
   invoiceUrl?: string;
   autoRenew: boolean;
   createdAt: Date;
@@ -34,8 +37,13 @@ const subscriptionSchema = new Schema<ISubscription>(
     endDate: { type: Date, required: true },
     amount: { type: Number, required: true },
     currency: { type: String, default: "INR" },
-    paymentGateway: { type: String, enum: ["razorpay", "stripe", "manual"], default: "razorpay" },
+    paymentGateway: {
+      type: String,
+      enum: ["free", "razorpay", "stripe", "manual"],
+      default: "free",
+    },
     paymentId: { type: String },
+    gatewayOrderId: { type: String, index: true },
     invoiceUrl: { type: String },
     autoRenew: { type: Boolean, default: false },
   },

@@ -11,7 +11,7 @@ import {
 import { redisClient } from "@config/redis";
 import { env } from "@config/env";
 import { UserRole } from "@app-types/enums";
-
+import * as billingService from "@services/billing.service";
 interface DeviceInfo {
   userAgent?: string;
   ip?: string;
@@ -61,7 +61,14 @@ export async function registerUser(input: {
   const existing = await User.findOne({ email: input.email.toLowerCase() });
   if (existing) throw ApiError.conflict("An account with this email already exists");
 
-  const freePlan = await Plan.findOne({ slug: "free" });
+  const freePlan = await Plan.findOne({
+    slug: "free",
+    isActive: true,
+  });
+
+  if (!freePlan) {
+    throw new Error("Free plan not found");
+  }
 
   const user = await User.create({
     name: input.name,
@@ -69,9 +76,18 @@ export async function registerUser(input: {
     password: input.password,
     phone: input.phone,
     role: UserRole.USER,
-    currentPlan: freePlan?._id ?? null,
+    currentPlan: freePlan._id,
   });
-
+  // Automatically activate the Free subscription
+  await billingService.subscribeUserToPlan(
+    user._id.toString(),
+    freePlan._id.toString(),
+    {
+      paymentGateway: "free",
+      paymentId: "free-plan",
+      autoRenew: false,
+    }
+  );
   const tokens = await issueTokenPair(user, device);
   return { user, ...tokens };
 }
