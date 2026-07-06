@@ -1,0 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* === QRBharat — refined editorial SaaS palette ===
+       Cobalt #000099 brand · cool-slate neutrals · single emerald accent for success.
+       Calm, premium, launch-ready. */
+
+    /* Surfaces — soft cool paper, not blue-tinted not green-tinted */
+    --background: 220 24% 98%;            /* near-white with cool slate cast */
+    --foreground: 222 32% 12%;            /* deep slate ink */
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 32% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 32% 12%;
+
+    /* Primary — cobalt #000099 */
+    --primary: 240 100% 30%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 230 100% 97%;
+    --primary-glow: 232 88% 56%;
+
+    /* Cool-slate neutrals — the workhorse */
+    --secondary: 220 20% 96%;
+    --secondary-foreground: 222 28% 18%;
+
+    --muted: 220 20% 96%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 230 100% 97%;
+    --accent-foreground: 240 100% 30%;
+
+    --destructive: 4 74% 54%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 58% 38%;
+    --warning: 32 92% 50%;
+
+    /* Emerald — used ONLY for success states / positive deltas */
+    --emerald: 152 58% 38%;
+    --emerald-foreground: 0 0% 100%;
+    --emerald-soft: 152 50% 94%;
+    --emerald-glow: 152 62% 46%;
+
+    --honey: 32 92% 50%;
+    --honey-foreground: 222 32% 12%;
+    --honey-soft: 38 95% 94%;
+
+    --lime: 152 58% 38%;
+    --lime-foreground: 0 0% 100%;
+    --lime-soft: 152 50% 94%;
+
+    --border: 220 16% 91%;
+    --input: 220 16% 91%;
+    --ring: 240 100% 30%;
+
+    --radius: 0.875rem;
+
+    /* Hero */
+    --hero-bg: 220 24% 98%;
+    --hero-foreground: 222 32% 12%;
+    --hero-muted: 220 10% 46%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(240 100% 30%), hsl(232 88% 56%));
+    --gradient-hero: radial-gradient(ellipse 80% 60% at 50% 0%, hsl(230 100% 96%) 0%, hsl(220 24% 98%) 60%);
+    --gradient-blue: linear-gradient(160deg, hsl(240 100% 30%) 0%, hsl(240 100% 16%) 100%);
+    --gradient-soft: linear-gradient(135deg, hsl(220 22% 96%), hsl(220 24% 98%));
+    --gradient-emerald: linear-gradient(135deg, hsl(152 58% 38%) 0%, hsl(152 62% 46%) 100%);
+    --gradient-honey: linear-gradient(135deg, hsl(32 92% 50%), hsl(38 95% 62%));
+
+    /* Shadows — softer, layered, slate-tinted */
+    --shadow-sm:        0 1px 2px hsl(222 40% 12% / 0.04);
+    --shadow-card:      0 1px 2px hsl(222 40% 12% / 0.04), 0 4px 12px hsl(222 40% 12% / 0.04);
+    --shadow-elevated:  0 2px 6px hsl(222 40% 12% / 0.06), 0 16px 40px -8px hsl(222 40% 12% / 0.12);
+    --shadow-glow:      0 8px 24px hsl(240 100% 30% / 0.22);
+    --shadow-blue:      0 8px 22px -6px hsl(240 100% 30% / 0.32);
+    --shadow-emerald:   0 8px 22px -6px hsl(152 58% 38% / 0.28);
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 14% 32%;
+    --sidebar-primary: 240 100% 30%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 100% 97%;
+    --sidebar-accent-foreground: 240 100% 30%;
+    --sidebar-border: 220 16% 92%;
+    --sidebar-ring: 240 100% 30%;
+  }
+
+  .dark {
+    --background: 222 32% 7%;
+    --foreground: 220 20% 96%;
+    --card: 222 28% 10%;
+    --card-foreground: 220 20% 96%;
+    --popover: 222 28% 10%;
+    --popover-foreground: 220 20% 96%;
+    --primary: 232 88% 64%;
+    --primary-foreground: 222 32% 7%;
+    --secondary: 222 24% 14%;
+    --secondary-foreground: 220 20% 96%;
+    --muted: 222 24% 14%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 232 60% 18%;
+    --accent-foreground: 232 88% 80%;
+    --border: 222 20% 18%;
+    --input: 222 20% 18%;
+    --ring: 232 88% 64%;
+    --sidebar-background: 222 32% 9%;
+    --sidebar-foreground: 220 14% 72%;
+    --sidebar-primary: 232 88% 64%;
+    --sidebar-primary-foreground: 222 32% 7%;
+    --sidebar-accent: 222 24% 14%;
+    --sidebar-accent-foreground: 232 88% 80%;
+    --sidebar-border: 222 20% 16%;
+    --sidebar-ring: 232 88% 64%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11", "cv02";
+    font-synthesis: none;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.022em;
+    font-feature-settings: "ss01";
+  }
+  h1 { letter-spacing: -0.032em; }
+
+  /* Numbers always tabular for stats, prices, counts */
+  .tabular, [class*="font-bold"], [class*="font-semibold"] { font-variant-numeric: tabular-nums; }
+
+  /* Refined focus ring */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/40 ring-offset-2 ring-offset-background;
+  }
+
+  ::selection { background: hsl(var(--primary) / 0.18); color: hsl(var(--primary)); }
+}
+
+@layer utilities {
+  .font-heading { font-family: 'Space Grotesk', sans-serif; }
+  .font-body { font-family: 'Inter', sans-serif; }
+
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+  .text-gradient-emerald {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-emerald);
+  }
+  .bg-hero { background: var(--gradient-hero); }
+  .bg-gradient-blue { background: var(--gradient-blue); }
+  .bg-gradient-soft { background: var(--gradient-soft); }
+  .bg-gradient-emerald { background: var(--gradient-emerald); }
+  .shadow-sm-soft { box-shadow: var(--shadow-sm); }
+  .shadow-card { box-shadow: var(--shadow-card); }
+  .shadow-elevated { box-shadow: var(--shadow-elevated); }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .shadow-blue { box-shadow: var(--shadow-blue); }
+  .shadow-emerald { box-shadow: var(--shadow-emerald); }
+  .glass-surface {
+    @apply bg-card/75 backdrop-blur-xl border border-border/60;
+  }
+  .grid-pattern {
+    background-image:
+      linear-gradient(hsl(var(--border)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .dotted-pattern {
+    background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+  .hairline { border-color: hsl(var(--border) / 0.7); }
+}
