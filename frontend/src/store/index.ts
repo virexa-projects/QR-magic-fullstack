@@ -2,11 +2,12 @@ import { configureStore } from "@reduxjs/toolkit";
 import { TypedUseSelectorHook, useDispatch, useSelector } from "react-redux";
 import authReducer from "./slices/authSlice";
 import billingReducer from "./slices/Billingslice"; 
-
+import qrReducer from "./slices/qrSlice"
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     billing: billingReducer,
+    qr:qrReducer
   },
 });
 
