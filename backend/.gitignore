@@ -1,18 +1,16 @@
 # Dependencies
-**/node_modules/
+node_modules/
 
-# Build
-**/dist/
-**/.next/
-**/out/
+# Build output
+dist/
 
 # Environment
-**/.env
-**/.env.*
-!**/.env.example
+.env
+.env.*
+!.env.example
 
 # Logs
-**/logs/
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -23,7 +21,11 @@ pnpm-debug.log*
 *.tsbuildinfo
 
 # Coverage
-**/coverage/
+coverage/
+
+# Runtime
+*.pid
+*.seed
 
 # IDE
 .vscode/
@@ -36,7 +38,3 @@ Thumbs.db
 # Temp
 tmp/
 temp/
-
-# Runtime
-*.pid
-*.seed
