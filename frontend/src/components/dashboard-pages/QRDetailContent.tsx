@@ -18,7 +18,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-
+import { useDispatch, useSelector } from "react-redux";
+import { useEffect } from "react";
+import { fetchQrById } from "@/store/slices/qrSlice";
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
   upi: "bg-success/10 text-success",
@@ -37,6 +39,7 @@ function seeded(seed: number) {
 }
 
 function QRDetailInner() {
+  
   const router = useRouter();
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : undefined;

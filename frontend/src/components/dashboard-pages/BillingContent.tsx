@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2, CalendarClock, ShieldCheck, RefreshCw } from "lucide-react";
+import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2, CalendarClock, ShieldCheck, RefreshCw, ArrowDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -132,6 +132,28 @@ const freeUsageDefaults: SubscriptionUsage = {
   scanLimitPerMonth: 1000,
 };
 
+// --- Plan tier ranking ---------------------------------------------------
+// Standard SaaS tier ladder. Used to decide whether picking a given plan
+// counts as an "upgrade" or a "downgrade" relative to the user's current
+// active subscription, and to gate downgrades (esp. to Free) behind a
+// confirmation step instead of switching instantly.
+const PLAN_TIER_ORDER: Record<string, number> = {
+  free: 0,
+  starter: 1,
+  pro: 2,
+  business: 3,
+};
+
+function tierRankOf(slugOrId?: string | null): number {
+  if (!slugOrId) return 0;
+  const key = slugOrId.toLowerCase();
+  return key in PLAN_TIER_ORDER ? PLAN_TIER_ORDER[key] : 0;
+}
+
+function planKey(plan: { slug?: string; _id: string }): string {
+  return (plan.slug ?? plan._id ?? "").toLowerCase();
+}
+
 function formatDate(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -213,6 +235,68 @@ function GatewayPickerModal({
   );
 }
 
+function DowngradeConfirmModal({
+  fromName,
+  toPlan,
+  endDate,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  fromName: string;
+  toPlan: ApiPlan;
+  endDate?: string;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-card border border-border/60 rounded-2xl p-6 w-full max-w-sm shadow-xl relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full bg-warning/10 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4 text-warning" />
+          </div>
+          <h3 className="text-base font-semibold font-heading text-foreground">
+            Downgrade to {toPlan.name}?
+          </h3>
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          You're moving from <span className="font-semibold text-foreground">{fromName}</span> down to{" "}
+          <span className="font-semibold text-foreground">{toPlan.name}</span>. Some features and higher
+          limits available on {fromName} won't be available after this change.
+          {endDate && (
+            <>
+              {" "}Your current billing period runs until{" "}
+              <span className="font-semibold text-foreground">{formatDate(endDate)}</span>.
+            </>
+          )}
+        </p>
+
+        <div className="mt-5 flex gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1 h-10 rounded-full">
+            Cancel
+          </Button>
+          <Button
+            disabled={loading}
+            onClick={onConfirm}
+            className="flex-1 h-10 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Confirm downgrade`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BillingInner() {
   const dispatch = useDispatch<AppDispatch>();
   const {
@@ -229,6 +313,7 @@ function BillingInner() {
 
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [pickerPlan, setPickerPlan] = useState<ApiPlan | null>(null);
+  const [downgradeTarget, setDowngradeTarget] = useState<ApiPlan | null>(null);
 
   const hasRealPlans = apiPlans && apiPlans.length > 0;
   const plans = hasRealPlans ? apiPlans : fallbackPlans;
@@ -251,6 +336,15 @@ function BillingInner() {
     "Free";
 
   const isSubscriptionActive = activeSubscription?.status === "active";
+
+  // Tier rank of whatever the user is actively paying for right now.
+  // If there's no active paid subscription, they're effectively on Free (rank 0),
+  // so every plan in the grid reads as an upgrade.
+  const currentTierRank = useMemo(() => {
+    if (!isSubscriptionActive) return 0;
+    const key = subscriptionPlan?.slug ?? currentPlanId;
+    return tierRankOf(key);
+  }, [isSubscriptionActive, subscriptionPlan, currentPlanId]);
 
   // Real usage numbers, falling back to sensible free-tier defaults
   // when there's no active subscription yet.
@@ -312,8 +406,6 @@ function BillingInner() {
             subscriptionId: order.subscriptionId,
           })
         );
-        // Refresh so the usage card / current-plan badge reflect the
-        // just-verified subscription immediately.
         dispatch(fetchActiveSubscription());
         setPickerPlan(null);
       },
@@ -332,7 +424,7 @@ function BillingInner() {
     if (createStripeCheckout.rejected.match(result)) return;
 
     const { url } = result.payload as { url: string; sessionId: string };
-    window.location.href = url; // hand off to Stripe's hosted checkout page
+    window.location.href = url;
   }
 
   function handleChooseGateway(gateway: Gateway) {
@@ -341,20 +433,49 @@ function BillingInner() {
     else handleStripe(pickerPlan);
   }
 
-  // Free plans cost ₹0 — there's nothing to pay, so never show the
-  // Razorpay/Stripe picker for them. Switch immediately via the
-  // no-payment backend path (switchToFreePlan) instead. The slice's
-  // freePlanLoading tracks the in-flight state.
+  // Free plans cost ₹0. We only allow switching to Free via the no-payment
+  // backend path (switchToFreePlan) when the user ISN'T currently on an
+  // active paid plan — see isFreeBlocked below, which disables the button
+  // entirely in that case rather than letting it fire.
+  async function handleSwitchToFree(plan: ApiPlan) {
+    const result = await dispatch(switchToFreePlan(plan._id));
+    if (switchToFreePlan.fulfilled.match(result)) {
+      dispatch(fetchActiveSubscription());
+    }
+  }
+
   async function handleSelectPlan(plan: ApiPlan) {
+    const targetRank = tierRankOf(planKey(plan));
+    const isDowngrade = isSubscriptionActive && targetRank < currentTierRank;
+
     if (plan.price === 0) {
-      const result = await dispatch(switchToFreePlan(plan._id));
-      if (switchToFreePlan.fulfilled.match(result)) {
-        dispatch(fetchActiveSubscription());
+      // Free is only reachable from an unpaid/expired state — the button
+      // itself is disabled while a paid plan is active (see isFreeBlocked),
+      // this is just a defensive second guard.
+      if (isSubscriptionActive && currentTierRank > 0) {
+        toast.error(`Cancel or wait out your ${currentPlanName} plan first`, {
+          description: `You're on an active paid plan until ${formatDate(activeSubscription?.endDate)}.`,
+        });
+        return;
       }
+      await handleSwitchToFree(plan);
+      return;
+    }
+
+    if (isDowngrade) {
+      // Paid → lower paid tier (e.g. Business → Starter): confirm first,
+      // since the user loses higher-tier limits/features immediately.
+      setDowngradeTarget(plan);
       return;
     }
 
     setPickerPlan(plan);
+  }
+
+  async function confirmDowngrade() {
+    if (!downgradeTarget) return;
+    setPickerPlan(downgradeTarget);
+    setDowngradeTarget(null);
   }
 
   return (
@@ -568,6 +689,39 @@ function BillingInner() {
           const price = cycle === "monthly" ? plan.price : Math.round(plan.price * 10); // simple yearly approximation
           const period = cycle === "monthly" ? "/mo" : "/yr";
 
+          const targetRank = tierRankOf(planKey(plan));
+          const isDowngrade = !isCurrent && isSubscriptionActive && targetRank < currentTierRank;
+          const isUpgrade = !isCurrent && (!isSubscriptionActive || targetRank > currentTierRank);
+
+          // Standard SaaS rule: while any paid plan (Starter/Pro/Business) is
+          // active, block the Free-plan button entirely instead of allowing
+          // an instant downgrade to Free. The user needs to let their paid
+          // term run out (or you can wire in a cancel-at-period-end flow)
+          // before Free becomes selectable again.
+          const isFreeBlocked = plan.price === 0 && isSubscriptionActive && currentTierRank > 0 && !isCurrent;
+
+          const isDisabled =
+            isCurrent || checkoutLoading || freePlanLoading || !hasRealPlans || isFreeBlocked;
+
+          let buttonLabel: React.ReactNode;
+          if (isCurrent) {
+            buttonLabel = "Your current plan";
+          } else if (isFreeBlocked) {
+            buttonLabel = "Unavailable on active plan";
+          } else if (plan.price === 0 && freePlanLoading) {
+            buttonLabel = <Loader2 className="w-4 h-4 animate-spin mx-auto" />;
+          } else if (plan.price === 0) {
+            buttonLabel = "Switch to Free";
+          } else if (isDowngrade) {
+            buttonLabel = (
+              <span className="inline-flex items-center gap-1.5">
+                <ArrowDown className="w-3.5 h-3.5" /> Downgrade to {plan.name}
+              </span>
+            );
+          } else {
+            buttonLabel = `Upgrade to ${plan.name}`;
+          }
+
           return (
             <div
               key={plan._id}
@@ -598,6 +752,11 @@ function BillingInner() {
                     Current
                   </span>
                 )}
+                {isDowngrade && !isCurrent && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-warning/10 text-warning">
+                    Downgrade
+                  </span>
+                )}
               </div>
 
               <div className="mt-5 flex items-baseline gap-1">
@@ -610,27 +769,29 @@ function BillingInner() {
               </div>
 
               <Button
-                disabled={isCurrent || checkoutLoading || freePlanLoading || !hasRealPlans}
+                disabled={isDisabled}
                 onClick={() => handleSelectPlan(plan)}
-                title={!hasRealPlans ? "Plans are still loading — please wait" : undefined}
+                title={
+                  isFreeBlocked
+                    ? `Cancel or wait out your ${currentPlanName} plan first`
+                    : !hasRealPlans
+                    ? "Plans are still loading — please wait"
+                    : undefined
+                }
                 className={`w-full mt-5 h-10 rounded-full font-semibold ${
                   isPopular
                     ? "bg-emerald hover:bg-emerald/90 text-emerald-foreground"
                     : isCurrent
                     ? "bg-secondary text-muted-foreground hover:bg-secondary cursor-default"
+                    : isFreeBlocked
+                    ? "bg-secondary text-muted-foreground cursor-not-allowed"
+                    : isDowngrade
+                    ? "bg-warning/90 hover:bg-warning text-warning-foreground"
                     : "bg-primary hover:bg-primary/90 text-primary-foreground"
                 }`}
               >
-                {isCurrent ? (
-                  "Your current plan"
-                ) : plan.price === 0 && freePlanLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                ) : plan.price === 0 ? (
-                  "Switch to Free"
-                ) : (
-                  `Upgrade to ${plan.name}`
-                )}
-                {!isCurrent && plan.price !== 0 && <ArrowRight className="w-4 h-4 ml-1.5" />}
+                {buttonLabel}
+                {isUpgrade && plan.price !== 0 && <ArrowRight className="w-4 h-4 ml-1.5" />}
               </Button>
 
               <div className="mt-6 pt-5 border-t border-border/60 space-y-2.5">
@@ -684,6 +845,17 @@ function BillingInner() {
           loading={checkoutLoading}
           onClose={() => setPickerPlan(null)}
           onChoose={handleChooseGateway}
+        />
+      )}
+
+      {downgradeTarget && (
+        <DowngradeConfirmModal
+          fromName={currentPlanName}
+          toPlan={downgradeTarget}
+          endDate={activeSubscription?.endDate}
+          loading={checkoutLoading}
+          onClose={() => setDowngradeTarget(null)}
+          onConfirm={confirmDowngrade}
         />
       )}
     </div>
