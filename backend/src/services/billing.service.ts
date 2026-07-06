@@ -1,4 +1,5 @@
 import { addDays } from "date-fns";
+import { QRCode, QRStatus } from "@models/QRCode.model";
 import { Plan } from "@models/Plan.model";
 import { Subscription, SubscriptionStatus } from "@models/Subscription.model";
 import { User } from "@models/User.model";
@@ -21,7 +22,7 @@ export async function getPlanById(planId: string) {
 export async function subscribeUserToPlan(
   userId: string,
   planId: string,
-  opts: {  paymentGateway?: PaymentGateway; paymentId?: string; autoRenew?: boolean }
+  opts: { paymentGateway?: PaymentGateway; paymentId?: string; autoRenew?: boolean }
 ) {
   const plan = await getPlanById(planId);
 
@@ -49,6 +50,28 @@ export async function subscribeUserToPlan(
   await User.findByIdAndUpdate(userId, { currentPlan: plan._id, planExpiresAt: endDate });
 
   return subscription;
+}
+
+/**
+ * Switches a user onto a free (price === 0) plan with no gateway
+ * involved. Used both for the initial signup default plan and for
+ * users downgrading off a paid plan back to Free.
+ *
+ * Deliberately rejects any plan with price > 0 — this is the only
+ * thing stopping someone from hitting this route with a paid plan's
+ * id to get it for free, so don't relax it without adding an
+ * equivalent check somewhere else.
+ */
+export async function switchToFreePlan(userId: string, planId: string) {
+  const plan = await getPlanById(planId);
+
+  if (plan.price !== 0) {
+    throw ApiError.badRequest(
+      "This plan requires payment. Use the Razorpay/Stripe checkout instead."
+    );
+  }
+
+  return subscribeUserToPlan(userId, planId, { paymentGateway: "free" });
 }
 
 /**
@@ -128,10 +151,36 @@ export async function getUserBillingHistory(userId: string) {
 }
 
 export async function getActiveSubscription(userId: string) {
-  return Subscription.findOne({ user: userId, status: SubscriptionStatus.ACTIVE })
-    .populate("plan")
-    .sort({ createdAt: -1 })
-    .lean();
+  // Get active subscription
+  const subscription = await Subscription.findOne({
+    user: userId,
+    status: SubscriptionStatus.ACTIVE,
+  }).lean();
+
+  if (!subscription) return null;
+
+  // Get subscribed plan
+  const plan = await Plan.findById(subscription.plan).lean();
+
+  if (!plan) return null;
+
+  // Count active dynamic QR codes
+  const dynamicQrUsed = await QRCode.countDocuments({
+    owner: userId,
+    isDynamic: true,
+    status: QRStatus.ACTIVE,
+  });
+
+  return {
+    ...subscription,
+    plan,
+    usage: {
+      dynamicQrUsed,
+      dynamicQrLimit: plan.dynamicQrLimit,
+      qrLimit: plan.qrLimit,
+      scanLimitPerMonth: plan.scanLimitPerMonth,
+    },
+  };
 }
 
 export async function cancelSubscription(userId: string, subscriptionId: string) {

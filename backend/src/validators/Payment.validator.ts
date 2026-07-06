@@ -24,3 +24,8 @@ export const stripeCheckoutSchema = z.object({
     planId: z.string().min(1, "planId is required"),
   }),
 });
+export const subscribeFreeSchema = z.object({
+  body: z.object({
+    planId: z.string().min(1, "planId is required"),
+  }),
+});

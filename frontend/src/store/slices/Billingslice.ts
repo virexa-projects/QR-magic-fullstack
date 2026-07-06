@@ -22,7 +22,7 @@ export interface Subscription {
   status: SubscriptionStatus;
   amount: number;
   currency: string;
-  paymentGateway: Gateway | "manual";
+  paymentGateway: Gateway | "manual" | "free";
   startDate: string;
   endDate: string;
   autoRenew: boolean;
@@ -43,6 +43,7 @@ interface BillingState {
   razorpayOrder: RazorpayOrderPayload | null;
   loading: boolean;
   checkoutLoading: boolean;
+  freePlanLoading: boolean;
   error: string | null;
 }
 
@@ -53,6 +54,7 @@ const initialState: BillingState = {
   razorpayOrder: null,
   loading: false,
   checkoutLoading: false,
+  freePlanLoading: false,
   error: null,
 };
 
@@ -143,6 +145,26 @@ export const createStripeCheckout = createAsyncThunk(
   }
 );
 
+/**
+ * No-gateway plan switch, used for Free (price === 0) plans only. The
+ * backend (`switchToFreePlan` service) rejects any plan with price > 0,
+ * so this can't be used to sneak a paid plan for free.
+ */
+export const switchToFreePlan = createAsyncThunk(
+  "billing/switchToFreePlan",
+  async (planId: string, { rejectWithValue }) => {
+    try {
+      const res = await api.post("/billing/subscribe-free", { planId });
+      toast.success("Switched to the Free plan.");
+      return res.data.data as Subscription;
+    } catch (err: any) {
+      const message = err.response?.data?.message || "Failed to switch to the Free plan";
+      toast.error(message);
+      return rejectWithValue(message);
+    }
+  }
+);
+
 export const cancelSubscription = createAsyncThunk(
   "billing/cancelSubscription",
   async (subscriptionId: string, { rejectWithValue }) => {
@@ -224,6 +246,19 @@ const billingSlice = createSlice({
       })
       .addCase(createStripeCheckout.rejected, (state, action) => {
         state.checkoutLoading = false;
+        state.error = action.payload as string;
+      })
+
+      // free plan switch
+      .addCase(switchToFreePlan.pending, (state) => {
+        state.freePlanLoading = true;
+      })
+      .addCase(switchToFreePlan.fulfilled, (state, action) => {
+        state.activeSubscription = action.payload;
+        state.freePlanLoading = false;
+      })
+      .addCase(switchToFreePlan.rejected, (state, action) => {
+        state.freePlanLoading = false;
         state.error = action.payload as string;
       })
 

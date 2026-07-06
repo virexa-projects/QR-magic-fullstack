@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2 } from "lucide-react";
+import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2, CalendarClock, ShieldCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { loadRazorpayScript } from "@/lib/loadRazorpay";
+import { loadRazorpayScript } from "@/lib/Loadrazorpay";
 import { toast } from "sonner";
 import {
   fetchPlans,
@@ -14,9 +14,11 @@ import {
   verifyRazorpayPayment,
   createStripeCheckout,
   clearRazorpayOrder,
+  switchToFreePlan,
   type Gateway,
   type Plan as ApiPlan,
-} from "@/store/slices/billingSlice";
+} from "@/store/slices/Billingslice";
+import { formatLimit, calculateUsage } from "@/lib/billing-format";
 
 // NOTE: replace `any` with your real RootState / AppDispatch types if
 // you have typed hooks (useAppDispatch / useAppSelector) set up.
@@ -25,8 +27,51 @@ type AppDispatch = any;
 
 type BillingCycle = "monthly" | "yearly";
 
-// Fallback demo data so the page still renders something sensible if
-// the plans API hasn't been hit yet / has no data in dev.
+// Shape of the "plan" object as it comes back nested inside
+// activeSubscription (from your sample payload). This is richer than
+// the plain `ApiPlan` used for the pricing grid, so we type it
+// separately instead of forcing a cast.
+interface SubscriptionPlan {
+  _id: string;
+  slug?: string;
+  name: string;
+  price: number;
+  currency: string;
+  durationDays: number;
+  dynamicQrLimit?: number;
+  qrLimit?: number;
+  scanLimitPerMonth?: number;
+  features?: string[];
+  isActive?: boolean;
+}
+
+interface SubscriptionUsage {
+  dynamicQrUsed: number;
+  dynamicQrLimit: number;
+  qrLimit: number;
+  scanLimitPerMonth: number;
+}
+
+interface ActiveSubscription {
+  _id: string;
+  user: string;
+  plan: SubscriptionPlan | string;
+  status: "active" | "expired" | "cancelled" | "pending" | string;
+  startDate: string;
+  endDate: string;
+  amount: number;
+  currency: string;
+  paymentGateway: Gateway | string;
+  gatewayOrderId?: string;
+  autoRenew: boolean;
+  paymentId?: string;
+  usage?: SubscriptionUsage;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Fallback demo data so the pricing grid still renders something
+// sensible if the plans API hasn't been hit yet / has no data in dev.
 const fallbackPlans: ApiPlan[] = [
   {
     _id: "free",
@@ -78,7 +123,43 @@ const fallbackPlans: ApiPlan[] = [
   },
 ];
 
-const usage = { used: 5, total: 5 };
+// Sensible defaults for a user with no active subscription (free tier),
+// so the usage card never breaks if activeSubscription is null.
+const freeUsageDefaults: SubscriptionUsage = {
+  dynamicQrUsed: 0,
+  dynamicQrLimit: 5,
+  qrLimit: 20,
+  scanLimitPerMonth: 1000,
+};
+
+function formatDate(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function daysRemaining(iso?: string) {
+  if (!iso) return null;
+  const end = new Date(iso).getTime();
+  if (Number.isNaN(end)) return null;
+  const diff = end - Date.now();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function statusBadgeClasses(status?: string) {
+  switch (status) {
+    case "active":
+      return "bg-emerald/10 text-emerald border-emerald/30";
+    case "expired":
+    case "cancelled":
+      return "bg-destructive/10 text-destructive border-destructive/30";
+    case "pending":
+      return "bg-warning/10 text-warning border-warning/30";
+    default:
+      return "bg-secondary text-muted-foreground border-border/60";
+  }
+}
 
 function GatewayPickerModal({
   plan,
@@ -134,19 +215,51 @@ function GatewayPickerModal({
 
 function BillingInner() {
   const dispatch = useDispatch<AppDispatch>();
-  const { plans: apiPlans, activeSubscription, razorpayOrder, checkoutLoading } = useSelector(
-    (state: RootState) => state.billing
-  );
+  const {
+    plans: apiPlans,
+    activeSubscription,
+    checkoutLoading,
+    freePlanLoading,
+  }: {
+    plans: ApiPlan[];
+    activeSubscription: ActiveSubscription | null;
+    checkoutLoading: boolean;
+    freePlanLoading: boolean;
+  } = useSelector((state: RootState) => state.billing);
 
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [pickerPlan, setPickerPlan] = useState<ApiPlan | null>(null);
 
   const hasRealPlans = apiPlans && apiPlans.length > 0;
   const plans = hasRealPlans ? apiPlans : fallbackPlans;
+
+  // The plan can come back either populated (object) or as a bare id
+  // string depending on how the API responds — handle both.
+  const subscriptionPlan: SubscriptionPlan | null =
+    activeSubscription && typeof activeSubscription.plan === "object"
+      ? (activeSubscription.plan as SubscriptionPlan)
+      : null;
+
   const currentPlanId =
     typeof activeSubscription?.plan === "string"
       ? activeSubscription.plan
-      : activeSubscription?.plan?._id ?? "free";
+      : subscriptionPlan?._id ?? "free";
+
+  const currentPlanName =
+    plans.find((p: ApiPlan) => p._id === currentPlanId)?.name ??
+    subscriptionPlan?.name ??
+    "Free";
+
+  const isSubscriptionActive = activeSubscription?.status === "active";
+
+  // Real usage numbers, falling back to sensible free-tier defaults
+  // when there's no active subscription yet.
+  const usage: SubscriptionUsage = activeSubscription?.usage ?? freeUsageDefaults;
+
+  const dynamicQrUsage = calculateUsage(usage.dynamicQrUsed, usage.dynamicQrLimit);
+  const nearLimit = !dynamicQrUsage.isUnlimited && dynamicQrUsage.percentage >= 80;
+
+  const remainingDays = daysRemaining(activeSubscription?.endDate);
 
   useEffect(() => {
     dispatch(fetchPlans());
@@ -163,9 +276,6 @@ function BillingInner() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [dispatch]);
-
-  const usagePct = Math.min(100, (usage.used / usage.total) * 100);
-  const nearLimit = usagePct >= 80;
 
   async function handleRazorpay(plan: ApiPlan) {
     const result = await dispatch(createRazorpayOrder(plan._id));
@@ -202,6 +312,9 @@ function BillingInner() {
             subscriptionId: order.subscriptionId,
           })
         );
+        // Refresh so the usage card / current-plan badge reflect the
+        // just-verified subscription immediately.
+        dispatch(fetchActiveSubscription());
         setPickerPlan(null);
       },
       modal: {
@@ -228,6 +341,22 @@ function BillingInner() {
     else handleStripe(pickerPlan);
   }
 
+  // Free plans cost ₹0 — there's nothing to pay, so never show the
+  // Razorpay/Stripe picker for them. Switch immediately via the
+  // no-payment backend path (switchToFreePlan) instead. The slice's
+  // freePlanLoading tracks the in-flight state.
+  async function handleSelectPlan(plan: ApiPlan) {
+    if (plan.price === 0) {
+      const result = await dispatch(switchToFreePlan(plan._id));
+      if (switchToFreePlan.fulfilled.match(result)) {
+        dispatch(fetchActiveSubscription());
+      }
+      return;
+    }
+
+    setPickerPlan(plan);
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Page header */}
@@ -240,14 +369,105 @@ function BillingInner() {
             Manage your subscription, usage and invoices.
           </p>
         </div>
-        <Badge
-          variant="outline"
-          className="rounded-full px-3 py-1 text-[11px] font-semibold bg-secondary border-border/60 text-muted-foreground uppercase tracking-wider"
-        >
-          Current plan ·{" "}
-          {plans.find((p: ApiPlan) => p._id === currentPlanId)?.name ?? "Free"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {activeSubscription && (
+            <Badge
+              variant="outline"
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ${statusBadgeClasses(
+                activeSubscription.status
+              )}`}
+            >
+              {activeSubscription.status}
+            </Badge>
+          )}
+          <Badge
+            variant="outline"
+            className="rounded-full px-3 py-1 text-[11px] font-semibold bg-secondary border-border/60 text-muted-foreground uppercase tracking-wider"
+          >
+            Current plan · {currentPlanName}
+          </Badge>
+        </div>
       </div>
+
+      {/* Subscription summary — only shown when there's a real, paid subscription */}
+      {activeSubscription && subscriptionPlan && (
+        <section className="bg-card border border-border/60 rounded-2xl p-6 md:p-7 shadow-card">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-4 h-4 text-emerald" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Plan
+                </div>
+                <div className="text-sm font-semibold text-foreground mt-0.5">
+                  {subscriptionPlan.name}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  ₹{activeSubscription.amount.toLocaleString("en-IN")} /{" "}
+                  {subscriptionPlan.durationDays >= 365 ? "yr" : "mo"}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                <CalendarClock className="w-4 h-4 text-emerald" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Renews / expires
+                </div>
+                <div className="text-sm font-semibold text-foreground mt-0.5">
+                  {formatDate(activeSubscription.endDate)}
+                </div>
+                {remainingDays !== null && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {remainingDays > 0 ? `${remainingDays} days left` : "Expired"}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                <RefreshCw className="w-4 h-4 text-emerald" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Auto-renew
+                </div>
+                <div className="text-sm font-semibold text-foreground mt-0.5">
+                  {activeSubscription.autoRenew ? "On" : "Off"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5 capitalize">
+                  via {activeSubscription.paymentGateway}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                <Zap className="w-4 h-4 text-emerald" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Started
+                </div>
+                <div className="text-sm font-semibold text-foreground mt-0.5">
+                  {formatDate(activeSubscription.startDate)}
+                </div>
+                {activeSubscription.paymentId && (
+                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[140px]">
+                    {activeSubscription.paymentId}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Usage card */}
       <section className="bg-card border border-border/60 rounded-2xl p-6 md:p-7 shadow-card">
@@ -257,17 +477,22 @@ function BillingInner() {
               <Zap className="w-3.5 h-3.5" /> Dynamic QR usage
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold font-heading text-foreground">{usage.used}</span>
-              <span className="text-base text-muted-foreground">of {usage.total} used</span>
+              <span className="text-base font-semibold text-foreground">
+                {dynamicQrUsage.label}
+              </span>
             </div>
 
             <div className="mt-4 h-2 rounded-full bg-secondary overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  nearLimit ? "bg-gradient-to-r from-warning to-destructive" : "bg-emerald"
-                }`}
-                style={{ width: `${usagePct}%` }}
-              />
+              {dynamicQrUsage.isUnlimited ? (
+                <div className="h-full rounded-full bg-emerald/30" style={{ width: "100%" }} />
+              ) : (
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    nearLimit ? "bg-gradient-to-r from-warning to-destructive" : "bg-emerald"
+                  }`}
+                  style={{ width: `${dynamicQrUsage.percentage}%` }}
+                />
+              )}
             </div>
 
             {nearLimit && (
@@ -283,19 +508,21 @@ function BillingInner() {
 
           <div className="md:border-l md:border-border/60 md:pl-10">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              This month
+              Plan limits
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="text-2xl font-bold font-heading text-foreground">1,284</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Total scans</div>
+                <div className="text-2xl font-bold font-heading text-foreground">
+                  {formatLimit(usage.qrLimit)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">Total QR codes</div>
               </div>
               <div>
                 <div className="text-2xl font-bold font-heading text-foreground flex items-center gap-1">
-                  +28%
+                  {formatLimit(usage.scanLimitPerMonth)}
                   <TrendingUp className="w-4 h-4 text-emerald" />
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">vs last month</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Scans / month</div>
               </div>
             </div>
           </div>
@@ -336,7 +563,7 @@ function BillingInner() {
       {/* Plan grid */}
       <div className="grid md:grid-cols-3 gap-4">
         {plans.map((plan: ApiPlan, idx: number) => {
-          const isCurrent = plan._id === currentPlanId;
+          const isCurrent = plan._id === currentPlanId && isSubscriptionActive;
           const isPopular = idx === 1; // middle plan highlighted, same as original design
           const price = cycle === "monthly" ? plan.price : Math.round(plan.price * 10); // simple yearly approximation
           const period = cycle === "monthly" ? "/mo" : "/yr";
@@ -383,8 +610,8 @@ function BillingInner() {
               </div>
 
               <Button
-                disabled={isCurrent || checkoutLoading || !hasRealPlans}
-                onClick={() => setPickerPlan(plan)}
+                disabled={isCurrent || checkoutLoading || freePlanLoading || !hasRealPlans}
+                onClick={() => handleSelectPlan(plan)}
                 title={!hasRealPlans ? "Plans are still loading — please wait" : undefined}
                 className={`w-full mt-5 h-10 rounded-full font-semibold ${
                   isPopular
@@ -394,8 +621,16 @@ function BillingInner() {
                     : "bg-primary hover:bg-primary/90 text-primary-foreground"
                 }`}
               >
-                {isCurrent ? "Your current plan" : `Upgrade to ${plan.name}`}
-                {!isCurrent && <ArrowRight className="w-4 h-4 ml-1.5" />}
+                {isCurrent ? (
+                  "Your current plan"
+                ) : plan.price === 0 && freePlanLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                ) : plan.price === 0 ? (
+                  "Switch to Free"
+                ) : (
+                  `Upgrade to ${plan.name}`
+                )}
+                {!isCurrent && plan.price !== 0 && <ArrowRight className="w-4 h-4 ml-1.5" />}
               </Button>
 
               <div className="mt-6 pt-5 border-t border-border/60 space-y-2.5">
@@ -421,7 +656,9 @@ function BillingInner() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            No card on file. Add a payment method to enable auto-renewal.
+            {activeSubscription
+              ? `Last charged via ${activeSubscription.paymentGateway}. Add a card to enable auto-renewal.`
+              : "No card on file. Add a payment method to enable auto-renewal."}
           </p>
         </div>
         <div className="bg-card border border-border/60 rounded-2xl p-6 shadow-card">
@@ -432,7 +669,11 @@ function BillingInner() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            No invoices yet. They'll appear here after your first payment.
+            {activeSubscription
+              ? `Payment ID ${activeSubscription.paymentId ?? "—"} · ${formatDate(
+                  activeSubscription.createdAt
+                )}`
+              : "No invoices yet. They'll appear here after your first payment."}
           </p>
         </div>
       </div>
