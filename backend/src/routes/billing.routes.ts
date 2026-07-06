@@ -6,6 +6,7 @@ import {
   razorpayOrderSchema,
   razorpayVerifySchema,
   stripeCheckoutSchema,
+  subscribeFreeSchema, // add this export alongside the others in Payment.validator.ts
 } from "@validators/Payment.validator";
 import * as billingController from "@controllers/billing.controller";
 
@@ -21,6 +22,7 @@ router.post("/stripe/webhook", billingController.stripeWebhook);
 router.use(authenticate);
 
 router.post("/subscribe", validate(createSubscriptionSchema), billingController.subscribe);
+router.post("/subscribe-free", validate(subscribeFreeSchema), billingController.subscribeFree);
 router.get("/history", billingController.history);
 router.get("/active", billingController.active);
 router.post("/cancel/:id", billingController.cancel);

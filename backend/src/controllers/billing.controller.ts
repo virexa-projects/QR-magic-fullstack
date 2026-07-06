@@ -25,6 +25,20 @@ export const subscribe = catchAsync(async (req: Request, res: Response) => {
   sendSuccess(res, 201, "Subscribed successfully", subscription);
 });
 
+// ---------------------------------------------------------------------
+// Free plan switch (no gateway) — signup default + downgrade from a
+// paid plan back to Free. Rejects paid plan ids; see
+// billingService.switchToFreePlan for the guard.
+// ---------------------------------------------------------------------
+/** POST /billing/subscribe-free  { planId } */
+export const subscribeFree = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const { planId } = req.body;
+
+  const subscription = await billingService.switchToFreePlan(req.user.id, planId);
+  sendSuccess(res, 201, "Switched to free plan", subscription);
+});
+
 export const history = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const data = await billingService.getUserBillingHistory(req.user.id);
