@@ -10,6 +10,8 @@ export interface IQRDesign {
   dotStyle: "square" | "rounded" | "dots";
   frame: "none" | "rounded" | "scan-me";
   logo?: string;
+  bannerColor?: string;
+  accentColor?: string;
 }
 
 export interface IQRCode extends Document {
@@ -18,7 +20,9 @@ export interface IQRCode extends Document {
   name: string;
   type: QRType;
   destination: string; // raw destination data (url, phone, wifi ssid, vcard fields JSON, etc.)
+  content?: Record<string, any>; // structured per-type fields (used to repopulate edit forms)
   shortCode: string; // unique slug used in redirect URL for dynamic QRs
+  shortUrl:string;
   isDynamic: boolean;
   status: QRStatus;
   design: IQRDesign;
@@ -38,6 +42,8 @@ const designSchema = new Schema<IQRDesign>(
     dotStyle: { type: String, enum: ["square", "rounded", "dots"], default: "square" },
     frame: { type: String, enum: ["none", "rounded", "scan-me"], default: "none" },
     logo: { type: String },
+    bannerColor: { type: String },
+    accentColor: { type: String },
   },
   { _id: false }
 );
@@ -48,7 +54,12 @@ const qrCodeSchema = new Schema<IQRCode>(
     name: { type: String, required: true, trim: true, maxlength: 150 },
     type: { type: String, enum: Object.values(QRType), required: true },
     destination: { type: String, required: true },
+    content: { type: Schema.Types.Mixed, default: {} },
     shortCode: { type: String, required: true, unique: true, index: true },
+    shortUrl: {
+    type: String,
+    required: true,
+},
     isDynamic: { type: Boolean, default: true },
     status: { type: String, enum: Object.values(QRStatus), default: QRStatus.ACTIVE, index: true },
     design: { type: designSchema, default: () => ({}) },

@@ -36,5 +36,15 @@ export const env = {
 
   SHORT_URL_BASE: process.env.SHORT_URL_BASE || "https://qrb.in",
 
-  isProd: (process.env.NODE_ENV || "development") === "production",
+  // Payment
+  RAZORPAY_KEY_ID: required("RAZORPAY_KEY_ID"),
+  RAZORPAY_KEY_SECRET: required("RAZORPAY_KEY_SECRET"),
+
+  STRIPE_SECRET_KEY: required("STRIPE_SECRET_KEY"),
+  STRIPE_PUBLISHABLE_KEY: required("STRIPE_PUBLISHABLE_KEY"),
+  STRIPE_WEBHOOK_SECRET: required("STRIPE_WEBHOOK_SECRET"),
+
+  FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
+
+  isProd: process.env.NODE_ENV === "production",
 };

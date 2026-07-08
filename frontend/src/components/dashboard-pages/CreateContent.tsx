@@ -1,5 +1,10 @@
+"use client";
 import { useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
+import { createQr } from "@/store/slices/qrSlice";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Link as LinkIcon, Phone, Mail, MessageSquare, Wifi,
@@ -60,6 +65,9 @@ const STEPS = [
 ];
 
 function CreateInner() {
+  const router=useRouter()
+  const dispatch = useDispatch<AppDispatch>();
+  const { actionLoading } = useSelector((state: RootState) => state.qr);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedType, setSelectedType] = useState<QRType>("url");
   const [formData, setFormData] = useState<Record<string, string>>({});
@@ -133,11 +141,85 @@ function CreateInner() {
       }
     });
   };
+ const buildPayload = () => {
+  const finalQrValue = getQRValue();
 
-  const handleSave = () => {
-    if (!qrName.trim()) return toast.error("Add a name first");
-    toast.success(`Saved "${qrName}" to My QR Codes`);
+  return {
+    name: qrName.trim(),
+    type: selectedType,
+    isDynamic,
+    // highlight-start
+    destination: finalQrValue, // Ensure your required backend destination field is populated
+    // highlight-end
+    design: {
+      // highlight-start
+      fgColor: fgColor,   // Aligned with backend IQRDesign interface
+      bgColor: bgColor,   // Aligned with backend IQRDesign interface
+      // highlight-end
+      eyeColor: fgColor,  // Safe fallback matching your design preferences
+      dotStyle: "square" as const,
+      frame: "none" as const,
+      // highlight-start
+      bannerColor: cardBanner, // Matches designSchema keys perfectly
+      accentColor: cardAccent, // Matches designSchema keys perfectly
+      // highlight-end
+    },
+    qrValue: finalQrValue,
+    content: (() => {
+      switch (selectedType) {
+        case "url": return { url: formData.url || "" };
+        case "text": return { text: formData.text || "" };
+        case "whatsapp": return { phone: formData.phone || "", message: formData.message || "" };
+        case "wifi": return { ssid: formData.ssid || "", password: formData.password || "", encryption: formData.encryption || "WPA" };
+        case "vcard": return {
+          fullName: formData.fullName || "",
+          role: formData.role || "",
+          company: formData.company || "",
+          phones: parseList(formData.phones),
+          emails: parseList(formData.emails),
+          socials: parseList(formData.socials),
+        };
+        case "email": return { email: formData.email || "", subject: formData.subject || "", body: formData.body || "" };
+        case "phone": return { phone: formData.phone || "" };
+        case "sms": return { phone: formData.phone || "", message: formData.message || "" };
+        case "location": return { latitude: formData.latitude || "", longitude: formData.longitude || "" };
+        default: return {};
+      }
+    })(),
   };
+};
+const handleSave = async () => {
+  if (!qrName.trim()) {
+    return toast.error("Add a name first");
+  }
+
+  // 1. Generate the absolute object evaluation
+  const payload = buildPayload();
+
+  console.clear();
+  console.log("========== QR PAYLOAD ==========");
+  console.log(payload);
+
+  try {
+    // 2. Pass the data object (not the function) and unwrap promises cleanly
+    // highlight-start
+    const result = await dispatch(createQr(payload)).unwrap();
+    // highlight-end
+    
+    toast.success("QR Code saved successfully to your library!");
+    
+    // Clear state structures cleanly on success
+    setFormData({});
+    setQrName("");
+    setStep(1);
+    setPreviewMode("preview");
+    router.push("codes")
+  } catch (error: any) {
+    // Captures your backend ApiError messages gracefully (e.g. "Plan limit reached")
+    toast.error(error?.message || "Failed to create QR code. Please check subscription limits.");
+    console.error("Redux dispatch rejection traceback:", error);
+  }
+};
 
   const handleSmartPaste = async () => {
     try {
@@ -225,12 +307,12 @@ function CreateInner() {
           </div>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {[
-              { name: "Indigo",  banner: "#000099", accent: "#000099" },
-              { name: "Lime",    banner: "#1a1a2e", accent: "#84cc16" },
-              { name: "Slate",   banner: "#1a1a2e", accent: "#475569" },
-              { name: "Sunset",  banner: "#dc2626", accent: "#ea580c" },
-              { name: "Forest",  banner: "#0d5c3a", accent: "#10b981" },
-              { name: "Ocean",   banner: "#0369a1", accent: "#0ea5e9" },
+              { name: "Indigo", banner: "#000099", accent: "#000099" },
+              { name: "Lime", banner: "#1a1a2e", accent: "#84cc16" },
+              { name: "Slate", banner: "#1a1a2e", accent: "#475569" },
+              { name: "Sunset", banner: "#dc2626", accent: "#ea580c" },
+              { name: "Forest", banner: "#0d5c3a", accent: "#10b981" },
+              { name: "Ocean", banner: "#0369a1", accent: "#0ea5e9" },
             ].map((p) => {
               const sel = cardBanner === p.banner && cardAccent === p.accent;
               return (
@@ -305,15 +387,13 @@ function CreateInner() {
               <div key={s.n} className="flex items-center gap-2 flex-1">
                 <button
                   onClick={() => (done ? setStep(s.n as 1 | 2 | 3) : null)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition ${
-                    active ? "bg-primary/10" : done ? "hover:bg-secondary cursor-pointer" : ""
-                  }`}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition ${active ? "bg-primary/10" : done ? "hover:bg-secondary cursor-pointer" : ""
+                    }`}
                 >
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold transition ${
-                    active ? "bg-primary text-primary-foreground" :
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold transition ${active ? "bg-primary text-primary-foreground" :
                     done ? "bg-lime text-lime-foreground" :
-                    "bg-secondary text-muted-foreground"
-                  }`}>
+                      "bg-secondary text-muted-foreground"
+                    }`}>
                     {done ? <Check className="w-3.5 h-3.5" /> : s.n}
                   </span>
                   <span className={`text-xs font-semibold ${active ? "text-primary" : done ? "text-foreground" : "text-muted-foreground"}`}>
@@ -348,11 +428,10 @@ function CreateInner() {
                       <button
                         key={t.id}
                         onClick={() => { setSelectedType(t.id); setFormData({}); }}
-                        className={`relative text-left rounded-xl border p-3 transition-all ${
-                          sel
-                            ? "bg-primary/5 border-primary ring-1 ring-primary/30"
-                            : "bg-background border-border hover:border-foreground/30"
-                        }`}
+                        className={`relative text-left rounded-xl border p-3 transition-all ${sel
+                          ? "bg-primary/5 border-primary ring-1 ring-primary/30"
+                          : "bg-background border-border hover:border-foreground/30"
+                          }`}
                       >
                         {t.popular && !sel && (
                           <span className="absolute top-2 right-2 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-lime text-lime-foreground">
