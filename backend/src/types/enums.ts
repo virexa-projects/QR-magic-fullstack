@@ -25,6 +25,7 @@ export enum QRStatus {
 export enum SubscriptionStatus {
   ACTIVE = "active",
   EXPIRED = "expired",
+  SCHEDULED = "scheduled",
   CANCELLED = "cancelled",
   PENDING = "pending",
 }

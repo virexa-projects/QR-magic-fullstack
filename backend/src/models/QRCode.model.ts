@@ -22,6 +22,7 @@ export interface IQRCode extends Document {
   destination: string; // raw destination data (url, phone, wifi ssid, vcard fields JSON, etc.)
   content?: Record<string, any>; // structured per-type fields (used to repopulate edit forms)
   shortCode: string; // unique slug used in redirect URL for dynamic QRs
+  shortUrl:string;
   isDynamic: boolean;
   status: QRStatus;
   design: IQRDesign;
@@ -55,6 +56,10 @@ const qrCodeSchema = new Schema<IQRCode>(
     destination: { type: String, required: true },
     content: { type: Schema.Types.Mixed, default: {} },
     shortCode: { type: String, required: true, unique: true, index: true },
+    shortUrl: {
+    type: String,
+    required: true,
+},
     isDynamic: { type: Boolean, default: true },
     status: { type: String, enum: Object.values(QRStatus), default: QRStatus.ACTIVE, index: true },
     design: { type: designSchema, default: () => ({}) },

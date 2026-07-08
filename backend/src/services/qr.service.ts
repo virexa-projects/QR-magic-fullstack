@@ -81,6 +81,7 @@ export async function createQr(ownerId: string, input: CreateQrInput) {
     shortCode = generateShortCode();
   }
 
+  const shortUrl = `${env.SHORT_URL_BASE}/${shortCode}`;
   const qr = await QRCode.create({
     owner: ownerId,
     name: input.name,
@@ -88,12 +89,12 @@ export async function createQr(ownerId: string, input: CreateQrInput) {
     destination: input.destination,
     content: input.content ?? {}, // preserves per-type structured fields (vcard phones, wifi ssid, etc.)
     shortCode,
+    shortUrl,
     isDynamic: input.isDynamic ?? true,
     design: input.design ?? {},
     expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
   });
 
-  const shortUrl = `${env.SHORT_URL_BASE}/${qr.shortCode}`;
   const payload = buildQrPayload({
     isDynamic: qr.isDynamic,
     shortUrl,
@@ -146,7 +147,18 @@ export async function getQrById(ownerId: string, id: string, isPrivileged = fals
   if (!isPrivileged && qr.owner.toString() !== ownerId) throw ApiError.forbidden("Access denied");
   return qr;
 }
+export async function getQrByShortCode(shortCode: string) {
+  const qr = await QRCode.findOne({
+    shortCode,
+    status: QRStatus.ACTIVE, // or "active"
+  });
 
+  if (!qr) {
+    throw ApiError.notFound("QR code not found");
+  }
+
+  return qr;
+}
 export async function updateQr(
   ownerId: string,
   id: string,

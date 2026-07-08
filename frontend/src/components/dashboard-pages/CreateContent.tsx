@@ -1,4 +1,6 @@
+"use client";
 import { useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
 import { AppDispatch, RootState } from "@/store";
@@ -63,6 +65,7 @@ const STEPS = [
 ];
 
 function CreateInner() {
+  const router=useRouter()
   const dispatch = useDispatch<AppDispatch>();
   const { actionLoading } = useSelector((state: RootState) => state.qr);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -210,6 +213,7 @@ const handleSave = async () => {
     setQrName("");
     setStep(1);
     setPreviewMode("preview");
+    router.push("codes")
   } catch (error: any) {
     // Captures your backend ApiError messages gracefully (e.g. "Plan limit reached")
     toast.error(error?.message || "Failed to create QR code. Please check subscription limits.");

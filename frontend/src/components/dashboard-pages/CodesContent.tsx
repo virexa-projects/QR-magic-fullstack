@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
 import { AppDispatch, RootState } from "@/store";
-import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -388,7 +388,7 @@ function CodesInner() {
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.03 }}
                     onClick={() => router.push(`/dashboard/codes/${q._id}`)}
-                    
+
                     className="border-t border-border/60 hover:bg-secondary/40 transition cursor-pointer group"
                   >
                     <td className="px-5 py-3" onClick={stop}>
@@ -432,9 +432,8 @@ function CodesInner() {
                       <button
                         disabled={actionLoading}
                         onClick={(e) => { stop(e); toggleStatus(q); }}
-                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider disabled:opacity-50 ${
-                          q.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider disabled:opacity-50 ${q.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+                          }`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full ${q.status === "active" ? "bg-success animate-pulse" : "bg-muted-foreground"}`} />
                         {q.status}
@@ -456,6 +455,15 @@ function CodesInner() {
                         <IconBtn title="Edit destination" onClick={() => openEdit(q)}><Edit3 className="w-3.5 h-3.5" /></IconBtn>
                         <IconBtn title="Customize design" onClick={() => setDesigning(q)} accent><Palette className="w-3.5 h-3.5" /></IconBtn>
                         <IconBtn title="Analytics" onClick={() => router.push(`/dashboard/codes/${q._id}`)}><BarChart3 className="w-3.5 h-3.5" /></IconBtn>
+                        <IconBtn asChild title="Preview Link">
+                          <Link
+                            href={q.shortUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Link>
+                        </IconBtn>
                         <IconBtn title={q.status === "active" ? "Pause" : "Resume"} onClick={() => toggleStatus(q)}>
                           {q.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                         </IconBtn>
@@ -487,9 +495,8 @@ function CodesInner() {
               <button
                 key={n}
                 onClick={() => setPage(n)}
-                className={`w-8 h-8 rounded-lg text-xs font-semibold transition ${
-                  n === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`}
+                className={`w-8 h-8 rounded-lg text-xs font-semibold transition ${n === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
               >
                 {n}
               </button>
@@ -574,10 +581,10 @@ function IconBtn({ children, onClick, title, accent, danger }: { children: React
       onClick={onClick}
       title={title}
       className={`p-2 rounded-lg transition ${danger
-          ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          : accent
-            ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
-            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+        ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        : accent
+          ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
         }`}
     >
       {children}

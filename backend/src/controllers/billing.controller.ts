@@ -27,8 +27,9 @@ export const subscribe = catchAsync(async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------
 // Free plan switch (no gateway) — signup default + downgrade from a
-// paid plan back to Free. Rejects paid plan ids; see
-// billingService.switchToFreePlan for the guard.
+// paid plan back to Free. If the user has an active paid plan running,
+// this now SCHEDULES the switch for when that plan expires instead of
+// applying it instantly; billingService.switchToFreePlan handles that.
 // ---------------------------------------------------------------------
 /** POST /billing/subscribe-free  { planId } */
 export const subscribeFree = catchAsync(async (req: Request, res: Response) => {
@@ -36,7 +37,7 @@ export const subscribeFree = catchAsync(async (req: Request, res: Response) => {
   const { planId } = req.body;
 
   const subscription = await billingService.switchToFreePlan(req.user.id, planId);
-  sendSuccess(res, 201, "Switched to free plan", subscription);
+  sendSuccess(res, 201, "Free plan request processed", subscription);
 });
 
 export const history = catchAsync(async (req: Request, res: Response) => {
@@ -55,6 +56,17 @@ export const cancel = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const data = await billingService.cancelSubscription(req.user.id, req.params.id);
   sendSuccess(res, 200, "Subscription cancelled", data);
+});
+
+// ---------------------------------------------------------------------
+// Scheduled downgrade cancellation — lets a user back out of a pending
+// scheduled plan change before it takes effect.
+// ---------------------------------------------------------------------
+/** POST /billing/scheduled/cancel */
+export const cancelScheduledChange = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const data = await billingService.cancelScheduledChange(req.user.id);
+  sendSuccess(res, 200, "Scheduled plan change cancelled", data);
 });
 
 // ---------------------------------------------------------------------
@@ -102,8 +114,13 @@ export const verifyRazorpayPayment = catchAsync(async (req: Request, res: Respon
     throw ApiError.badRequest("Payment verification failed. Signature mismatch.");
   }
 
-  const subscription = await billingService.activateSubscription(subscriptionId, razorpay_payment_id);
-  sendSuccess(res, 200, "Payment verified, subscription activated", subscription);
+  // Activates immediately for upgrades/lateral moves, or schedules for
+  // end-of-period if this payment is a downgrade from an active plan.
+  const subscription = await billingService.activateOrScheduleSubscription(
+    subscriptionId,
+    razorpay_payment_id
+  );
+  sendSuccess(res, 200, "Payment verified", subscription);
 });
 
 // ---------------------------------------------------------------------
@@ -158,7 +175,9 @@ export const stripeWebhook = catchAsync(async (req: Request, res: Response) => {
     const session = event.data.object as any;
     const subscription = await billingService.findSubscriptionByGatewayOrderId(session.id);
     if (subscription) {
-      await billingService.activateSubscription(
+      // Activates immediately for upgrades/lateral moves, or schedules
+      // for end-of-period if this payment is a downgrade.
+      await billingService.activateOrScheduleSubscription(
         String(subscription._id),
         (session.payment_intent as string) || session.id
       );
