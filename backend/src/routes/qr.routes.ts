@@ -11,7 +11,7 @@ import {
 } from "@validators/qr.validator";
 
 const router = Router();
-
+router.get("/short/:shortCode", qrController.getByShortCode);
 router.use(authenticate);
 
 router.post("/", enforceQrQuota, validate(createQrSchema), qrController.create);

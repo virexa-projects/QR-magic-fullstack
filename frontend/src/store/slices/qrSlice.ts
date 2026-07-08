@@ -37,6 +37,7 @@ export interface QrCode {
   destination: string;
   content?: Record<string, any>; // per-type structured fields (vcard phones, wifi ssid, etc.)
   shortCode: string;
+  shortUrl: string;
   isDynamic: boolean;
   status: QrStatus;
   design: QrDesign;
@@ -68,6 +69,7 @@ interface QrState {
   items: QrCode[];
   pagination: QrPagination;
   currentQr: QrCode | null;
+  currentShortQr: QrCode | null;
   shortUrl: string | null;
   loading: boolean;
   actionLoading: boolean;
@@ -83,6 +85,7 @@ const initialState: QrState = {
     totalPages: 0,
   },
   currentQr: null,
+  currentShortQr: null,
   shortUrl: null,
   loading: false,
   actionLoading: false,
@@ -90,7 +93,30 @@ const initialState: QrState = {
 };
 
 // --- Async Thunks ---
+export const fetchQrByShortCode = createAsyncThunk(
+  "qr/fetchByShortCode",
+  async (shortCode: string, { rejectWithValue }) => {
+    if (!shortCode) {
+      return rejectWithValue("No short code provided");
+    }
 
+    try {
+      const res = await api.get(`/qr/short/${shortCode}`);
+
+      // Backend returns:
+      // { qr: {...}, shortUrl: "..." }
+
+      return res.data.data as {
+        qr: QrCode;
+        shortUrl: string;
+      };
+    } catch (err: any) {
+      return rejectWithValue(
+        err.response?.data?.message || "Failed to load QR"
+      );
+    }
+  }
+);
 /** Fetch paginated and filtered list of QR codes */
 export const fetchQrCodes = createAsyncThunk(
   "qr/fetchList",
@@ -186,6 +212,24 @@ const qrSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // Fetch by Short Code
+      .addCase(fetchQrByShortCode.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.currentShortQr = null;
+      })
+
+      .addCase(fetchQrByShortCode.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentShortQr = action.payload.qr;
+        state.shortUrl = action.payload.shortUrl;
+      })
+
+      .addCase(fetchQrByShortCode.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+        state.currentShortQr = null;
+      })
       // Fetch List
       .addCase(fetchQrCodes.pending, (state) => {
         state.loading = true;

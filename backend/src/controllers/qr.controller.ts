@@ -42,7 +42,16 @@ export const getOne = catchAsync(async (req: Request, res: Response) => {
     shortUrl: `${env.SHORT_URL_BASE}/${qr.shortCode}`,
   });
 });
+export const getByShortCode = catchAsync(async (req: Request, res: Response) => {
+  const { shortCode } = req.params;
 
+  const qr = await qrService.getQrByShortCode(shortCode);
+
+  sendSuccess(res, 200, "QR code fetched", {
+    qr,
+    shortUrl: `${env.SHORT_URL_BASE}/${qr.shortCode}`,
+  });
+});
 export const update = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const isPrivileged = [UserRole.ADMIN, UserRole.SUPERADMIN].includes(req.user.role);

@@ -27,6 +27,11 @@ router.get("/history", billingController.history);
 router.get("/active", billingController.active);
 router.post("/cancel/:id", billingController.cancel);
 
+// Lets a user back out of a pending scheduled downgrade before it
+// takes effect. No body needed — targets whatever is scheduled for
+// req.user right now.
+router.post("/scheduled/cancel", billingController.cancelScheduledChange);
+
 router.post(
   "/razorpay/create-order",
   validate(razorpayOrderSchema),

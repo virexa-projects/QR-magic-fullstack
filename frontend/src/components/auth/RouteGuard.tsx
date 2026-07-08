@@ -6,7 +6,7 @@ import { useAppSelector } from "@/store";
 import { UserRole } from "@/store/slices/authSlice";
 
 // Define your routing rules here
-const PUBLIC_ONLY_ROUTES = ["/login", "/register"]; // Only accessible if NOT logged in
+const PUBLIC_ONLY_ROUTES = ["/login", "/register","/preview"]; // Only accessible if NOT logged in
 const PUBLIC_ROUTES = ["/", "/about", "/pricing"]; // Accessible to everyone
 
 // Role-based restrictions (Path prefix -> Allowed roles)
