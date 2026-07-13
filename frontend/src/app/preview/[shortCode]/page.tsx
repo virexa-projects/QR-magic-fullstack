@@ -52,14 +52,96 @@ const SOCIAL_ICONS: Record<string, { icon: React.ElementType; brand: string }> =
 /*  Click tracking                                                     */
 /* ------------------------------------------------------------------ */
 
-function trackAndGo(shortCode: string, href: string, external?: boolean) {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+function trackClickBeacon(shortCode: string) {
   try {
-    navigator.sendBeacon(`/api/v1/qr/short/${shortCode}/click`);
+    navigator.sendBeacon(`${API_BASE}/qr/short/${shortCode}/click`);
   } catch {
-    // sendBeacon unsupported in some old webviews — don't block navigation on it
+    // sendBeacon unsupported in some old webviews — don't block on it
   }
+}
+
+function trackAndGo(shortCode: string, href: string, external?: boolean) {
+  trackClickBeacon(shortCode);
   if (external) window.open(href, "_blank", "noreferrer");
   else window.location.href = href;
+}
+
+/* ------------------------------------------------------------------ */
+/*  vCard (.vcf) generation                                             */
+/* ------------------------------------------------------------------ */
+
+function escapeVCardValue(value: string): string {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function buildVCardString(data: Record<string, any>): string {
+  const {
+    fullName = "",
+    role = "",
+    company = "",
+    phones = [],
+    emails = [],
+    socials = [],
+  } = data;
+
+  const lines = ["BEGIN:VCARD", "VERSION:3.0"];
+
+  if (fullName) {
+    lines.push(`FN:${escapeVCardValue(fullName)}`);
+    const parts = fullName.trim().split(/\s+/);
+    const last = parts.length > 1 ? parts.pop() : "";
+    const first = parts.join(" ");
+    lines.push(`N:${escapeVCardValue(last || "")};${escapeVCardValue(first || fullName)};;;`);
+  }
+  if (company) lines.push(`ORG:${escapeVCardValue(company)}`);
+  if (role) lines.push(`TITLE:${escapeVCardValue(role)}`);
+
+  phones.forEach((p: { label?: string; value: string }) => {
+    if (!p?.value) return;
+    const type = (p.label || "CELL").toUpperCase().replace(/[^A-Z]/g, "") || "CELL";
+    lines.push(`TEL;TYPE=${type},VOICE:${escapeVCardValue(p.value)}`);
+  });
+
+  emails.forEach((e: { label?: string; value: string }) => {
+    if (!e?.value) return;
+    const type = (e.label || "HOME").toUpperCase().replace(/[^A-Z]/g, "") || "HOME";
+    lines.push(`EMAIL;TYPE=${type}:${escapeVCardValue(e.value)}`);
+  });
+
+  socials.forEach((s: { label?: string; value: string }) => {
+    if (!s?.value) return;
+    const url = /^https?:\/\//i.test(s.value) ? s.value : `https://${s.value}`;
+    lines.push(`URL;TYPE=${escapeVCardValue(s.label || "Website")}:${escapeVCardValue(url)}`);
+  });
+
+  lines.push("END:VCARD");
+  // vCard spec requires CRLF line endings
+  return lines.join("\r\n");
+}
+
+function downloadVCard(shortCode: string, data: Record<string, any>) {
+  // record the click same as every other CTA on this page
+  trackClickBeacon(shortCode);
+
+  const vcf = buildVCardString(data);
+  const blob = new Blob([vcf], { type: "text/vcard;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const filename = `${(data.fullName || "contact").trim().replace(/\s+/g, "_")}.vcf`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // give the browser a tick to actually start the download before revoking
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,7 +215,13 @@ export default function PreviewPage({ params }: PageProps) {
       {primaryAction && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/90 p-3 backdrop-blur sm:hidden">
           <button
-            onClick={() => trackAndGo(shortCode, primaryAction.href, primaryAction.external)}
+            onClick={() => {
+              if (primaryAction.isVCard) {
+                downloadVCard(shortCode, currentShortQr.content || {});
+              } else {
+                trackAndGo(shortCode, primaryAction.href, primaryAction.external);
+              }
+            }}
             className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white shadow-sm"
             style={{ backgroundColor: accent }}
           >
@@ -239,7 +327,10 @@ function BrandFooter({ accent }: { accent: string }) {
 /*  Primary action resolver (for the sticky mobile bar)                */
 /* ------------------------------------------------------------------ */
 
-function getPrimaryAction(type: QRType, data: Record<string, any>): { label: string; href: string; external?: boolean } | null {
+function getPrimaryAction(
+  type: QRType,
+  data: Record<string, any>
+): { label: string; href: string; external?: boolean; isVCard?: boolean } | null {
   switch (type) {
     case "url":
       return { label: "Visit site", href: data.url || "#", external: true };
@@ -256,6 +347,9 @@ function getPrimaryAction(type: QRType, data: Record<string, any>): { label: str
       return { label: "Send email", href: `mailto:${data.email || ""}` };
     case "whatsapp":
       return { label: "Open WhatsApp", href: `https://wa.me/${(data.phone || "").replace(/\D/g, "")}`, external: true };
+    case "vcard":
+      // href unused for vcard — handled via downloadVCard in the click handler
+      return { label: "Add to Contacts", href: "#", isVCard: true };
     default:
       return null;
   }
@@ -268,7 +362,7 @@ function getPrimaryAction(type: QRType, data: Record<string, any>): { label: str
 function renderContent(type: QRType, data: Record<string, any>, design: QrDesign, shortCode: string) {
   switch (type) {
     case "url": return <URLContent data={data} shortCode={shortCode} />;
-    case "vcard": return <VCardContent data={data} design={design} />;
+    case "vcard": return <VCardContent data={data} design={design} shortCode={shortCode} />;
     case "upi": return <UPIContent data={data} shortCode={shortCode} />;
     case "whatsapp": return <WhatsAppContent data={data} shortCode={shortCode} />;
     case "wifi": return <WifiContent data={data} shortCode={shortCode} />;
@@ -321,7 +415,15 @@ function URLContent({ data, shortCode }: { data: Record<string, any>; shortCode:
 /*  VCard                                                               */
 /* ------------------------------------------------------------------ */
 
-function VCardContent({ data, design }: { data: Record<string, any>; design: QrDesign }) {
+function VCardContent({
+  data,
+  design,
+  shortCode,
+}: {
+  data: Record<string, any>;
+  design: QrDesign;
+  shortCode: string;
+}) {
   const name = data.fullName || "Your Name";
   const role = data.role || (data.company ? "Team Member" : "Your Role");
   const company = data.company || "";
@@ -373,7 +475,10 @@ function VCardContent({ data, design }: { data: Record<string, any>; design: QrD
       </div>
 
       <div className="px-4 pb-5 sm:px-8">
-        <button className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-neutral-900 text-sm font-semibold text-white">
+        <button
+          onClick={() => downloadVCard(shortCode, data)}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-neutral-900 text-sm font-semibold text-white"
+        >
           <User className="h-4 w-4" /> Add to Contacts
         </button>
         <p className="mt-2 text-center text-[11px] text-neutral-400">Saves directly to your phone — no app needed</p>

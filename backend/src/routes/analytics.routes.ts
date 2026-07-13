@@ -15,5 +15,7 @@ router.get("/devices", validate(analyticsRangeSchema), analyticsController.devic
 router.get("/locations", analyticsController.locations);
 router.get("/hourly", validate(analyticsRangeSchema), analyticsController.hourly);
 router.get("/qr/:id", validate(idParamSchema), analyticsController.qrAnalytics);
+router.get("/qr/:id/locations", validate(idParamSchema), analyticsController.qrLocations); // NEW
+router.get("/qr/:id/recent", validate(idParamSchema), analyticsController.qrRecentScans);   // NEW
 
 export default router;
