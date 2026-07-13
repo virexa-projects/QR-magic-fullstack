@@ -11,7 +11,10 @@ import {
 } from "@validators/qr.validator";
 
 const router = Router();
+// Public — hit by anonymous visitors' phones/browsers, no auth
 router.get("/short/:shortCode", qrController.getByShortCode);
+router.post("/short/:shortCode/click", qrController.trackClick); // NEW
+
 router.use(authenticate);
 
 router.post("/", enforceQrQuota, validate(createQrSchema), qrController.create);
