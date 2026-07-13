@@ -1,13 +1,8 @@
 import { z } from "zod";
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in yyyy-MM-dd format");
 
-export const analyticsRangeSchema = z.object({
-  query: z.object({
-    from: z.string().optional(),
-    to: z.string().optional(),
-    qrId: z.string().optional(),
-    days: z.string().optional(),
-  }),
-});
 
 export const createSubscriptionSchema = z.object({
   body: z.object({
@@ -17,3 +12,18 @@ export const createSubscriptionSchema = z.object({
     autoRenew: z.boolean().optional(),
   }),
 });
+
+export const analyticsRangeSchema = z
+  .object({
+    query: z
+      .object({
+        startDate: isoDate.optional(),
+        endDate: isoDate.optional(),
+      })
+      .refine(
+        (q) => !q.startDate || !q.endDate || q.startDate <= q.endDate,
+        { message: "endDate must be on or after startDate", path: ["endDate"] }
+      ),
+  })
+  .passthrough();
+ 

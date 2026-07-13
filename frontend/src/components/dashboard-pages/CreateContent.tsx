@@ -204,9 +204,6 @@ const handleSave = async () => {
     // 2. Pass the data object (not the function) and unwrap promises cleanly
     // highlight-start
     const result = await dispatch(createQr(payload)).unwrap();
-    // highlight-end
-    
-    toast.success("QR Code saved successfully to your library!");
     
     // Clear state structures cleanly on success
     setFormData({});
@@ -216,7 +213,6 @@ const handleSave = async () => {
     router.push("codes")
   } catch (error: any) {
     // Captures your backend ApiError messages gracefully (e.g. "Plan limit reached")
-    toast.error(error?.message || "Failed to create QR code. Please check subscription limits.");
     console.error("Redux dispatch rejection traceback:", error);
   }
 };

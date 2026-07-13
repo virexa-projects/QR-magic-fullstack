@@ -13,7 +13,7 @@ const PUBLIC_ROUTES = ["/", "/about", "/pricing"]; // Accessible to everyone
 const ROLE_PROTECTED_ROUTES: Record<string, UserRole[]> = {
   // Allow Admin and Superadmin for general dashboard, but restrict users
   "/dashboard/codes": [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER],
-  "/dashboard": [UserRole.ADMIN, UserRole.SUPERADMIN],
+  "/dashboard": [UserRole.ADMIN, UserRole.SUPERADMIN,UserRole.USER],
   
   // Admin-only panels
   "/admin": [UserRole.ADMIN, UserRole.SUPERADMIN],

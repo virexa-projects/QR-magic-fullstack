@@ -48,16 +48,12 @@ export const globalRateLimiter = makeLazyLimiter(
 );
 
 // Tighter limits for brute-force-sensitive auth endpoints
-export const authRateLimiter = makeLazyLimiter(
-  {
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { success: false, message: "Too many auth attempts, please try again in 15 minutes." },
-  },
-  "rl:auth:"
-);
+export const authRateLimiter = rateLimit({
+  windowMs: env.RATE_LIMIT_WINDOW_MS,
+  max: env.RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // High-throughput limiter for the public QR redirect/scan endpoint
 export const scanRateLimiter = makeLazyLimiter(
