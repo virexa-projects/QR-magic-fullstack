@@ -43,3 +43,19 @@ export const qrAnalytics = catchAsync(async (req: Request, res: Response) => {
   const data = await analyticsService.getQrAnalytics(req.user.id, req.params.id, days);
   sendSuccess(res, 200, "QR analytics fetched", data);
 });
+
+// NEW
+export const qrLocations = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const limit = parseInt((req.query.limit as string) || "6", 10);
+  const data = await analyticsService.getQrLocationBreakdown(req.user.id, req.params.id, limit);
+  sendSuccess(res, 200, "QR location breakdown fetched", data);
+});
+
+// NEW
+export const qrRecentScans = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const limit = parseInt((req.query.limit as string) || "8", 10);
+  const data = await analyticsService.getRecentScans(req.user.id, req.params.id, limit);
+  sendSuccess(res, 200, "Recent scans fetched", data);
+});

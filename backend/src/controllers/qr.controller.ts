@@ -3,6 +3,7 @@ import { catchAsync } from "@utils/catchAsync";
 import { sendSuccess } from "@utils/ApiResponse";
 import { ApiError } from "@utils/ApiError";
 import * as qrService from "@services/qr.service";
+import { recordClick, recordScan } from "@services/Scantracking.service";
 import { UserRole } from "@app-types/enums";
 import { env } from "@config/env";
 
@@ -44,13 +45,32 @@ export const getOne = catchAsync(async (req: Request, res: Response) => {
 });
 export const getByShortCode = catchAsync(async (req: Request, res: Response) => {
   const { shortCode } = req.params;
-
+ 
   const qr = await qrService.getQrByShortCode(shortCode);
-
+ 
+  // Fire-and-forget: the visitor's browser gets its response immediately,
+  // the scan write happens in the background and can never fail the request.
+  recordScan(qr._id, qr.owner, req).catch(() => {});
+ 
   sendSuccess(res, 200, "QR code fetched", {
     qr,
     shortUrl: `${env.SHORT_URL_BASE}/${qr.shortCode}`,
   });
+});
+/**
+ * NEW — public, no auth. Called via navigator.sendBeacon from the preview
+ * page the instant the visitor taps the CTA, right before navigation.
+ * Looks the QR up directly (not via getQrById, which enforces ownership —
+ * this endpoint is hit by anonymous visitors, not the owner) and swallows
+ * a missing/paused QR silently so a stale/expired sticker never surfaces
+ * an error to a random scanner.
+ */
+export const trackClick = catchAsync(async (req: Request, res: Response) => {
+  const qr = await qrService.getQrByShortCode(req.params.shortCode).catch(() => null);
+  if (qr) {
+    recordClick(qr._id, qr.owner, req).catch(() => {});
+  }
+  sendSuccess(res, 200, "Click recorded", {});
 });
 export const update = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();

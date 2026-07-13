@@ -49,6 +49,102 @@ const SOCIAL_ICONS: Record<string, { icon: React.ElementType; brand: string }> =
 };
 
 /* ------------------------------------------------------------------ */
+/*  Click tracking                                                     */
+/* ------------------------------------------------------------------ */
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+function trackClickBeacon(shortCode: string) {
+  try {
+    navigator.sendBeacon(`${API_BASE}/qr/short/${shortCode}/click`);
+  } catch {
+    // sendBeacon unsupported in some old webviews — don't block on it
+  }
+}
+
+function trackAndGo(shortCode: string, href: string, external?: boolean) {
+  trackClickBeacon(shortCode);
+  if (external) window.open(href, "_blank", "noreferrer");
+  else window.location.href = href;
+}
+
+/* ------------------------------------------------------------------ */
+/*  vCard (.vcf) generation                                             */
+/* ------------------------------------------------------------------ */
+
+function escapeVCardValue(value: string): string {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function buildVCardString(data: Record<string, any>): string {
+  const {
+    fullName = "",
+    role = "",
+    company = "",
+    phones = [],
+    emails = [],
+    socials = [],
+  } = data;
+
+  const lines = ["BEGIN:VCARD", "VERSION:3.0"];
+
+  if (fullName) {
+    lines.push(`FN:${escapeVCardValue(fullName)}`);
+    const parts = fullName.trim().split(/\s+/);
+    const last = parts.length > 1 ? parts.pop() : "";
+    const first = parts.join(" ");
+    lines.push(`N:${escapeVCardValue(last || "")};${escapeVCardValue(first || fullName)};;;`);
+  }
+  if (company) lines.push(`ORG:${escapeVCardValue(company)}`);
+  if (role) lines.push(`TITLE:${escapeVCardValue(role)}`);
+
+  phones.forEach((p: { label?: string; value: string }) => {
+    if (!p?.value) return;
+    const type = (p.label || "CELL").toUpperCase().replace(/[^A-Z]/g, "") || "CELL";
+    lines.push(`TEL;TYPE=${type},VOICE:${escapeVCardValue(p.value)}`);
+  });
+
+  emails.forEach((e: { label?: string; value: string }) => {
+    if (!e?.value) return;
+    const type = (e.label || "HOME").toUpperCase().replace(/[^A-Z]/g, "") || "HOME";
+    lines.push(`EMAIL;TYPE=${type}:${escapeVCardValue(e.value)}`);
+  });
+
+  socials.forEach((s: { label?: string; value: string }) => {
+    if (!s?.value) return;
+    const url = /^https?:\/\//i.test(s.value) ? s.value : `https://${s.value}`;
+    lines.push(`URL;TYPE=${escapeVCardValue(s.label || "Website")}:${escapeVCardValue(url)}`);
+  });
+
+  lines.push("END:VCARD");
+  // vCard spec requires CRLF line endings
+  return lines.join("\r\n");
+}
+
+function downloadVCard(shortCode: string, data: Record<string, any>) {
+  // record the click same as every other CTA on this page
+  trackClickBeacon(shortCode);
+
+  const vcf = buildVCardString(data);
+  const blob = new Blob([vcf], { type: "text/vcard;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const filename = `${(data.fullName || "contact").trim().replace(/\s+/g, "_")}.vcf`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // give the browser a tick to actually start the download before revoking
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -76,6 +172,7 @@ export default function PreviewPage({ params }: PageProps) {
   const design: QrDesign = currentShortQr.design || {};
   const accent = design.accentColor || design.fgColor || "#0d9488";
   const type = currentShortQr.type as QRType;
+  const shortCode = currentShortQr.shortCode as string;
   const primaryAction = getPrimaryAction(type, currentShortQr.content || {});
 
   return (
@@ -83,19 +180,16 @@ export default function PreviewPage({ params }: PageProps) {
       className="relative min-h-screen w-full overflow-x-hidden bg-[#FAFAF8] text-[#14151A]"
       style={{ ["--accent" as string]: accent }}
     >
-      {/* Ambient accent glow — makes each card feel like it belongs to its owner */}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-72 opacity-[0.14] blur-3xl"
         style={{ background: `radial-gradient(60% 100% at 50% 0%, ${accent}, transparent)` }}
       />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pt-14 lg:max-w-xl">
-        {/* Entry moment: a single scan-pulse, not a decoration that repeats */}
         <div className="mb-5 flex justify-center sm:mb-7">
           <ScanPulse accent={accent} active={justArrived} />
         </div>
 
-        {/* The card — the whole reason someone is here */}
         <div className="overflow-hidden rounded-[28px] border border-neutral-200/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_16px_40px_-12px_rgba(0,0,0,0.12)]">
           <AnimatePresence mode="wait">
             <motion.div
@@ -104,12 +198,11 @@ export default function PreviewPage({ params }: PageProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              {renderContent(type, currentShortQr.content || {}, design)}
+              {renderContent(type, currentShortQr.content || {}, design, shortCode)}
             </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* Quiet provenance line — who made this, not how many times it's been scanned */}
         <p className="mt-5 text-center text-[12px] text-neutral-400 sm:mt-6">
           Shared by <span className="font-medium text-neutral-500">{currentShortQr.name || "a Virexa user"}</span>
         </p>
@@ -119,18 +212,21 @@ export default function PreviewPage({ params }: PageProps) {
         <BrandFooter accent={accent} />
       </div>
 
-      {/* Thumb-reachable action bar on small screens, mirrors the card's own CTA */}
       {primaryAction && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/90 p-3 backdrop-blur sm:hidden">
-          <a
-            href={primaryAction.href}
-            target={primaryAction.external ? "_blank" : undefined}
-            rel={primaryAction.external ? "noreferrer" : undefined}
+          <button
+            onClick={() => {
+              if (primaryAction.isVCard) {
+                downloadVCard(shortCode, currentShortQr.content || {});
+              } else {
+                trackAndGo(shortCode, primaryAction.href, primaryAction.external);
+              }
+            }}
             className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white shadow-sm"
             style={{ backgroundColor: accent }}
           >
             {primaryAction.label} <ArrowRight className="h-4 w-4" />
-          </a>
+          </button>
         </div>
       )}
     </div>
@@ -231,7 +327,10 @@ function BrandFooter({ accent }: { accent: string }) {
 /*  Primary action resolver (for the sticky mobile bar)                */
 /* ------------------------------------------------------------------ */
 
-function getPrimaryAction(type: QRType, data: Record<string, any>): { label: string; href: string; external?: boolean } | null {
+function getPrimaryAction(
+  type: QRType,
+  data: Record<string, any>
+): { label: string; href: string; external?: boolean; isVCard?: boolean } | null {
   switch (type) {
     case "url":
       return { label: "Visit site", href: data.url || "#", external: true };
@@ -248,6 +347,9 @@ function getPrimaryAction(type: QRType, data: Record<string, any>): { label: str
       return { label: "Send email", href: `mailto:${data.email || ""}` };
     case "whatsapp":
       return { label: "Open WhatsApp", href: `https://wa.me/${(data.phone || "").replace(/\D/g, "")}`, external: true };
+    case "vcard":
+      // href unused for vcard — handled via downloadVCard in the click handler
+      return { label: "Add to Contacts", href: "#", isVCard: true };
     default:
       return null;
   }
@@ -257,19 +359,19 @@ function getPrimaryAction(type: QRType, data: Record<string, any>): { label: str
 /*  Content router                                                     */
 /* ------------------------------------------------------------------ */
 
-function renderContent(type: QRType, data: Record<string, any>, design: QrDesign) {
+function renderContent(type: QRType, data: Record<string, any>, design: QrDesign, shortCode: string) {
   switch (type) {
-    case "url": return <URLContent data={data} />;
-    case "vcard": return <VCardContent data={data} design={design} />;
-    case "upi": return <UPIContent data={data} />;
-    case "whatsapp": return <WhatsAppContent data={data} />;
-    case "wifi": return <WifiContent data={data} />;
-    case "email": return <EmailContent data={data} />;
-    case "phone": return <PhoneCallContent data={data} />;
-    case "sms": return <SMSContent data={data} />;
-    case "location": return <LocationContent data={data} />;
+    case "url": return <URLContent data={data} shortCode={shortCode} />;
+    case "vcard": return <VCardContent data={data} design={design} shortCode={shortCode} />;
+    case "upi": return <UPIContent data={data} shortCode={shortCode} />;
+    case "whatsapp": return <WhatsAppContent data={data} shortCode={shortCode} />;
+    case "wifi": return <WifiContent data={data} shortCode={shortCode} />;
+    case "email": return <EmailContent data={data} shortCode={shortCode} />;
+    case "phone": return <PhoneCallContent data={data} shortCode={shortCode} />;
+    case "sms": return <SMSContent data={data} shortCode={shortCode} />;
+    case "location": return <LocationContent data={data} shortCode={shortCode} />;
     case "text": return <TextContent data={data} />;
-    default: return <URLContent data={data} />;
+    default: return <URLContent data={data} shortCode={shortCode} />;
   }
 }
 
@@ -277,7 +379,7 @@ function renderContent(type: QRType, data: Record<string, any>, design: QrDesign
 /*  URL                                                                 */
 /* ------------------------------------------------------------------ */
 
-function URLContent({ data }: { data: Record<string, any> }) {
+function URLContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const url = data.url || "https://yourwebsite.com";
   const domain = url.replace(/https?:\/\//, "").split("/")[0] || "yourwebsite.com";
   return (
@@ -294,15 +396,13 @@ function URLContent({ data }: { data: Record<string, any> }) {
         <p className="mt-1.5 max-w-xs text-[13px] text-neutral-500">
           This QR code opens the link above. Tap below to continue.
         </p>
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => trackAndGo(shortCode, url, true)}
           className="mt-6 flex h-12 w-full max-w-xs items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white shadow-sm"
           style={{ backgroundColor: "var(--accent)" }}
         >
           Visit site <ExternalLink className="h-4 w-4" />
-        </a>
+        </button>
         <p className="mt-3 flex items-center gap-1 text-[11px] text-neutral-400">
           <ShieldCheck className="h-3 w-3" /> Scanned links are shown before you open them
         </p>
@@ -315,7 +415,15 @@ function URLContent({ data }: { data: Record<string, any> }) {
 /*  VCard                                                               */
 /* ------------------------------------------------------------------ */
 
-function VCardContent({ data, design }: { data: Record<string, any>; design: QrDesign }) {
+function VCardContent({
+  data,
+  design,
+  shortCode,
+}: {
+  data: Record<string, any>;
+  design: QrDesign;
+  shortCode: string;
+}) {
   const name = data.fullName || "Your Name";
   const role = data.role || (data.company ? "Team Member" : "Your Role");
   const company = data.company || "";
@@ -367,7 +475,10 @@ function VCardContent({ data, design }: { data: Record<string, any>; design: QrD
       </div>
 
       <div className="px-4 pb-5 sm:px-8">
-        <button className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-neutral-900 text-sm font-semibold text-white">
+        <button
+          onClick={() => downloadVCard(shortCode, data)}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-neutral-900 text-sm font-semibold text-white"
+        >
           <User className="h-4 w-4" /> Add to Contacts
         </button>
         <p className="mt-2 text-center text-[11px] text-neutral-400">Saves directly to your phone — no app needed</p>
@@ -394,16 +505,19 @@ function ContactRow({ icon: Icon, label, value, accent }: { icon: React.ElementT
 /*  UPI                                                                 */
 /* ------------------------------------------------------------------ */
 
-function UPIContent({ data }: { data: Record<string, any> }) {
+function UPIContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const name = data.name || "Payee Name";
   const amount = data.amount || "0.00";
+  const upiId = data.upiId || "";
+  const upiHref = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(name)}&am=${encodeURIComponent(amount)}${data.note ? `&tn=${encodeURIComponent(data.note)}` : ""}`;
+
   return (
     <div className="flex flex-col items-center px-6 py-8 text-center sm:px-10 sm:py-10">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent)]/10 sm:h-20 sm:w-20">
         <CreditCard className="h-7 w-7 sm:h-9 sm:w-9" style={{ color: "var(--accent)" }} />
       </div>
       <p className="mt-3 text-base font-semibold text-neutral-900 sm:text-lg">{name}</p>
-      {data.upiId && <p className="mt-0.5 text-xs text-neutral-500">{data.upiId}</p>}
+      {upiId && <p className="mt-0.5 text-xs text-neutral-500">{upiId}</p>}
 
       <div className="mt-6">
         <p className="text-[11px] font-medium uppercase tracking-wider text-neutral-400">Amount</p>
@@ -415,6 +529,7 @@ function UPIContent({ data }: { data: Record<string, any> }) {
       )}
 
       <button
+        onClick={() => trackAndGo(shortCode, upiHref, false)}
         className="mt-7 flex h-12 w-full max-w-xs items-center justify-center rounded-2xl text-sm font-semibold text-white shadow-sm"
         style={{ backgroundColor: "var(--accent)" }}
       >
@@ -436,9 +551,11 @@ function UPIContent({ data }: { data: Record<string, any> }) {
 /*  WhatsApp                                                            */
 /* ------------------------------------------------------------------ */
 
-function WhatsAppContent({ data }: { data: Record<string, any> }) {
+function WhatsAppContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const phone = data.phone || "+91 XXXXX XXXXX";
   const message = data.message || "Hi! 👋";
+  const waHref = `https://wa.me/${phone.replace(/\D/g, "")}${message ? `?text=${encodeURIComponent(message)}` : ""}`;
+
   return (
     <div className="flex flex-col bg-[#ece5dd]">
       <div className="flex items-center gap-3 bg-[#075e54] px-4 py-3 sm:px-6">
@@ -459,7 +576,10 @@ function WhatsAppContent({ data }: { data: Record<string, any> }) {
         </div>
       </div>
       <div className="bg-white px-4 py-4 sm:px-8">
-        <button className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[#075e54] text-sm font-semibold text-white">
+        <button
+          onClick={() => trackAndGo(shortCode, waHref, true)}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[#075e54] text-sm font-semibold text-white"
+        >
           <MessageSquare className="h-4 w-4" /> Open WhatsApp
         </button>
       </div>
@@ -471,9 +591,12 @@ function WhatsAppContent({ data }: { data: Record<string, any> }) {
 /*  Wifi                                                                */
 /* ------------------------------------------------------------------ */
 
-function WifiContent({ data }: { data: Record<string, any> }) {
+function WifiContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const ssid = data.ssid || "Network Name";
   const enc = data.encryption || "WPA";
+  const password = data.password || "";
+  const wifiHref = `WIFI:T:${enc};S:${ssid};P:${password};;`;
+
   return (
     <div className="flex flex-col items-center px-6 py-8 text-center sm:px-10 sm:py-10">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent)]/10 sm:h-20 sm:w-20">
@@ -483,6 +606,7 @@ function WifiContent({ data }: { data: Record<string, any> }) {
       <p className="mt-1 text-xs text-neutral-500">Secured with {enc}</p>
 
       <button
+        onClick={() => trackAndGo(shortCode, wifiHref, false)}
         className="mt-7 flex h-12 w-full max-w-xs items-center justify-center rounded-2xl text-sm font-semibold text-white shadow-sm"
         style={{ backgroundColor: "var(--accent)" }}
       >
@@ -499,10 +623,12 @@ function WifiContent({ data }: { data: Record<string, any> }) {
 /*  Email                                                               */
 /* ------------------------------------------------------------------ */
 
-function EmailContent({ data }: { data: Record<string, any> }) {
+function EmailContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const email = data.email || "hello@example.com";
   const subject = data.subject || "Subject line";
   const body = data.body || "Your message here...";
+  const mailtoHref = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
   return (
     <div className="flex flex-col">
       <div className="border-b border-neutral-100 px-5 py-3 sm:px-8">
@@ -522,13 +648,13 @@ function EmailContent({ data }: { data: Record<string, any> }) {
         <p className="text-[13px] leading-relaxed text-neutral-600">{body}</p>
       </div>
       <div className="px-5 pb-5 sm:px-8">
-        <a
-          href={`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+        <button
+          onClick={() => trackAndGo(shortCode, mailtoHref, false)}
           className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
           style={{ backgroundColor: "var(--accent)" }}
         >
           <Mail className="h-4 w-4" /> Send Email
-        </a>
+        </button>
       </div>
     </div>
   );
@@ -538,7 +664,7 @@ function EmailContent({ data }: { data: Record<string, any> }) {
 /*  Phone / SMS                                                        */
 /* ------------------------------------------------------------------ */
 
-function PhoneCallContent({ data }: { data: Record<string, any> }) {
+function PhoneCallContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const phone = data.phone || "+91 XXXXX XXXXX";
   return (
     <div className="flex flex-col items-center bg-gradient-to-b from-neutral-50 to-white px-6 py-10 text-center">
@@ -548,20 +674,29 @@ function PhoneCallContent({ data }: { data: Record<string, any> }) {
       <p className="mt-4 text-xl font-semibold text-neutral-900 sm:text-2xl">{phone}</p>
       <p className="mt-1 text-xs text-neutral-500">Mobile</p>
       <div className="mt-8 flex w-full max-w-xs gap-3">
-        <a href={`tel:${phone}`} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-sm font-semibold text-white">
+        <button
+          onClick={() => trackAndGo(shortCode, `tel:${phone}`, false)}
+          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-sm font-semibold text-white"
+        >
           <Phone className="h-4 w-4" /> Call
-        </a>
-        <a href={`sms:${phone}`} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white" style={{ backgroundColor: "var(--accent)" }}>
+        </button>
+        <button
+          onClick={() => trackAndGo(shortCode, `sms:${phone}`, false)}
+          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
+          style={{ backgroundColor: "var(--accent)" }}
+        >
           <MessageCircle className="h-4 w-4" /> Message
-        </a>
+        </button>
       </div>
     </div>
   );
 }
 
-function SMSContent({ data }: { data: Record<string, any> }) {
+function SMSContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const phone = data.phone || "+91 XXXXX XXXXX";
   const message = data.message || "Your message...";
+  const smsHref = `sms:${phone}?body=${encodeURIComponent(message)}`;
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2.5 border-b border-neutral-100 px-5 py-3 sm:px-8">
@@ -578,13 +713,13 @@ function SMSContent({ data }: { data: Record<string, any> }) {
         </div>
       </div>
       <div className="px-5 pb-5 sm:px-8">
-        <a
-          href={`sms:${phone}?body=${encodeURIComponent(message)}`}
+        <button
+          onClick={() => trackAndGo(shortCode, smsHref, false)}
           className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
           style={{ backgroundColor: "var(--accent)" }}
         >
           Send Message
-        </a>
+        </button>
       </div>
     </div>
   );
@@ -594,9 +729,11 @@ function SMSContent({ data }: { data: Record<string, any> }) {
 /*  Location                                                            */
 /* ------------------------------------------------------------------ */
 
-function LocationContent({ data }: { data: Record<string, any> }) {
+function LocationContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
   const lat = data.latitude || "28.6139";
   const lng = data.longitude || "77.2090";
+  const mapsHref = `https://www.google.com/maps?q=${lat},${lng}`;
+
   return (
     <div className="flex flex-col">
       <div className="relative flex items-center justify-center bg-[color:var(--accent)]/5" style={{ minHeight: 180 }}>
@@ -615,15 +752,13 @@ function LocationContent({ data }: { data: Record<string, any> }) {
       <div className="px-5 py-5 text-center sm:px-8">
         <p className="text-sm font-semibold text-neutral-900">Pinned Location</p>
         <p className="mt-0.5 text-[11px] text-neutral-500">{lat}°N, {lng}°E</p>
-        <a
-          href={`https://www.google.com/maps?q=${lat},${lng}`}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => trackAndGo(shortCode, mapsHref, true)}
           className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
           style={{ backgroundColor: "var(--accent)" }}
         >
           <MapPin className="h-4 w-4" /> Get Directions
-        </a>
+        </button>
       </div>
     </div>
   );
