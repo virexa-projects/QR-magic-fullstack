@@ -11,7 +11,7 @@ async function seedPlans() {
       name: "Free",
       slug: "free",
       price: 0,
-      durationDays: 36500,
+      durationDays: 365,
       qrLimit: 5,
       dynamicQrLimit: 1,
       scanLimitPerMonth: 1000,
@@ -20,7 +20,7 @@ async function seedPlans() {
     {
       name: "Starter",
       slug: "starter",
-      price: 29900,
+      price: 299,
       durationDays: 30,
       qrLimit: 50,
       dynamicQrLimit: 20,
@@ -30,7 +30,7 @@ async function seedPlans() {
     {
       name: "Business",
       slug: "business",
-      price: 99900,
+      price: 999,
       durationDays: 30,
       qrLimit: -1,
       dynamicQrLimit: -1,

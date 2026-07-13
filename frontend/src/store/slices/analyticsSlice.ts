@@ -53,6 +53,16 @@ export interface HourlyPoint {
   scans: number;
 }
 
+// Matches analyticsService.getTopQRs()
+export interface TopQr {
+  id: string;
+  name: string;
+  type: string;
+  destination: string;
+  scansToday: number;
+  scans: number; // scansTotal
+}
+
 export interface DateRangeParams {
   startDate?: string; // "yyyy-MM-dd" — omit for current month
   endDate?: string;   // "yyyy-MM-dd" — omit for current month
@@ -65,7 +75,12 @@ interface AnalyticsState {
   devices: Record<string, number>;
   accountLocations: QrLocationRow[];
   hourly: HourlyPoint[];
+  topQrs: TopQr[];
+
   summaryLoading: boolean;
+  trendLoading: boolean;
+  devicesLoading: boolean;
+  topQrsLoading: boolean;
 
   // per-QR
   qrId: string | null;
@@ -84,7 +99,12 @@ const initialState: AnalyticsState = {
   devices: {},
   accountLocations: [],
   hourly: [],
+  topQrs: [],
+
   summaryLoading: false,
+  trendLoading: false,
+  devicesLoading: false,
+  topQrsLoading: false,
 
   qrId: null,
   dailyRows: [],
@@ -157,6 +177,19 @@ export const fetchHourly = createAsyncThunk(
       return res.data.data as HourlyPoint[];
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || "Failed to load hourly heatmap");
+    }
+  }
+);
+
+// NEW: powers the "Top performing QRs today" card on the overview page
+export const fetchTopQrs = createAsyncThunk(
+  "analytics/fetchTopQrs",
+  async ({ limit = 4 }: { limit?: number } = {}, { rejectWithValue }) => {
+    try {
+      const res = await api.get("/analytics/top-qrs", { params: { limit } });
+      return res.data.data as TopQr[];
+    } catch (err: any) {
+      return rejectWithValue(err.response?.data?.message || "Failed to load top QR codes");
     }
   }
 );
@@ -239,6 +272,7 @@ const analyticsSlice = createSlice({
       state.devices = {};
       state.accountLocations = [];
       state.hourly = [];
+      state.topQrs = [];
       state.error = null;
     },
   },
@@ -257,17 +291,44 @@ const analyticsSlice = createSlice({
         state.summaryLoading = false;
         state.error = action.payload as string;
       })
+      .addCase(fetchTrend.pending, (state) => {
+        state.trendLoading = true;
+      })
       .addCase(fetchTrend.fulfilled, (state, action) => {
         state.trend = action.payload;
+        state.trendLoading = false;
+      })
+      .addCase(fetchTrend.rejected, (state, action) => {
+        state.trendLoading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchDevices.pending, (state) => {
+        state.devicesLoading = true;
       })
       .addCase(fetchDevices.fulfilled, (state, action) => {
         state.devices = action.payload;
+        state.devicesLoading = false;
+      })
+      .addCase(fetchDevices.rejected, (state, action) => {
+        state.devicesLoading = false;
+        state.error = action.payload as string;
       })
       .addCase(fetchAccountLocations.fulfilled, (state, action) => {
         state.accountLocations = action.payload;
       })
       .addCase(fetchHourly.fulfilled, (state, action) => {
         state.hourly = action.payload;
+      })
+      .addCase(fetchTopQrs.pending, (state) => {
+        state.topQrsLoading = true;
+      })
+      .addCase(fetchTopQrs.fulfilled, (state, action) => {
+        state.topQrs = action.payload;
+        state.topQrsLoading = false;
+      })
+      .addCase(fetchTopQrs.rejected, (state, action) => {
+        state.topQrsLoading = false;
+        state.error = action.payload as string;
       })
 
       // Per-QR

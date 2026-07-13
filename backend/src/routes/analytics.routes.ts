@@ -14,7 +14,7 @@ router.get("/trend", validate(analyticsRangeSchema), analyticsController.trend);
 router.get("/devices", validate(analyticsRangeSchema), analyticsController.devices);
 router.get("/locations", analyticsController.locations);
 router.get("/hourly", validate(analyticsRangeSchema), analyticsController.hourly);
-
+router.get("/top-qrs", analyticsController.topQrs);
 router.get(
   "/qr/:id",
   validate(idParamSchema),

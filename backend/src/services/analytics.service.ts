@@ -308,3 +308,42 @@ export async function getRecentScans(ownerId: string, qrId: string, limit = 8) {
     scannedAt: r.scannedAt,
   }));
 }
+
+// OVERVIEW PERDAY DATA 
+
+export async function getTopQRs(ownerId: string, limit = 4) {
+  const ownerObjectId = new Types.ObjectId(ownerId);
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
+
+  // Live count of today's scans per QR — same reasoning as getDashboardSummary:
+  // don't trust the denormalized scansToday field on QRCode.
+  const rows = await Scan.aggregate([
+    { $match: { owner: ownerObjectId, scannedAt: { $gte: todayStart, $lte: todayEnd } } },
+    { $group: { _id: "$qrCode", scansToday: { $sum: 1 } } },
+    { $sort: { scansToday: -1 } },
+    { $limit: limit },
+  ]);
+
+  const qrIds = rows.map((r) => r._id);
+  const qrDocs = await QRCode.find({ _id: { $in: qrIds }, owner: ownerObjectId })
+    .select("name type destination scansTotal")
+    .lean();
+
+  const qrMap = new Map(qrDocs.map((q) => [q._id.toString(), q]));
+
+  return rows
+    .map((r) => {
+      const qr = qrMap.get(r._id.toString());
+      if (!qr) return null;
+      return {
+        id: r._id.toString(),
+        name: qr.name,
+        type: qr.type,
+        destination: qr.destination,
+        scansToday: r.scansToday,
+        scans: qr.scansTotal,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+}
