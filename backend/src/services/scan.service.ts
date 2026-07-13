@@ -5,7 +5,7 @@ import { ApiError } from "@utils/ApiError";
 import { QRStatus } from "@app-types/enums";
 import { getIO } from "@sockets/io";
 import { format } from "date-fns";
-
+import { getISTHour } from "@utils/time";
 interface RecordScanInput {
   shortCode: string;
   ip: string;
@@ -37,7 +37,7 @@ export async function recordScanAndResolve(input: RecordScanInput): Promise<{ de
 
   const now = new Date();
   const dateBucket = format(now, "yyyy-MM-dd");
-  const hour = now.getUTCHours();
+ const hour = getISTHour();
 
   // Fire-and-forget analytics writes so redirect latency stays low.
   // Errors are logged but never block/redirect failure for the end user.

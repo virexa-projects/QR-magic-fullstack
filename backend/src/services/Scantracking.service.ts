@@ -6,6 +6,7 @@ import { Scan } from "@models/Scan.model";
 import { AnalyticsDaily } from "@models/AnalyticsDaily.model";
 import { DeviceType } from "@app-types/enums";
 import { resolveGeo } from "./Geo.service";
+import { getISTHour } from "@utils/time";
 
 function mapDeviceType(ua: ReturnType<UAParser["getResult"]>): DeviceType {
   const os = ua.os.name?.toLowerCase() || "";
@@ -68,7 +69,7 @@ export async function recordScan(
       $set: { lastScanAt: new Date() },
     });
 
-    const hour = new Date().getUTCHours();
+    const hour = getISTHour();
     const incFields: Record<string, number> = {
       scans: 1,
       [`deviceBreakdown.${device}`]: 1,

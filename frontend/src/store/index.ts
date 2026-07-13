@@ -4,6 +4,7 @@ import authReducer from "./slices/authSlice";
 import billingReducer from "./slices/Billingslice"; 
 import qrReducer from "./slices/qrSlice";
 import analyticsReducer from "./slices/analyticsSlice"
+import { toastMiddleware } from "./middleware/toastMiddleware";
 export const store = configureStore({
   reducer: {
     auth: authReducer,
@@ -11,6 +12,7 @@ export const store = configureStore({
     qr:qrReducer,
      analytics: analyticsReducer,
   },
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(toastMiddleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;
