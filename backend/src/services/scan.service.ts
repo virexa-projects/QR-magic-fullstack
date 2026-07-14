@@ -6,6 +6,7 @@ import { QRStatus } from "@app-types/enums";
 import { getIO } from "@sockets/io";
 import { format } from "date-fns";
 import { getISTHour } from "@utils/time";
+import { notifyScan } from "./Notification.service";
 interface RecordScanInput {
   shortCode: string;
   ip: string;
@@ -94,6 +95,9 @@ export async function recordScanAndResolve(input: RecordScanInput): Promise<{ de
   } catch {
     /* socket layer not ready - non-critical */
   }
+
+  // Create a persistent notification document + emit "notification:new" for the bell icon
+  notifyScan(qr.owner.toString(), qr._id.toString(), qr.name).catch(() => {});
 
   return { destination: qr.destination, type: qr.type };
 }

@@ -257,10 +257,18 @@ function CodesInner() {
     }
   };
 
-  const saveDesign = async (d: QrDesign) => {
+  const saveDesign = async (d: QrDesign, logoFile?: File | null) => {
     if (!designing) return;
     try {
-      await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
+      if (logoFile) {
+        const fd = new FormData();
+        fd.append("logo", logoFile); // binary, matches uploadLogo.single("logo")
+        // other design fields must go as strings/JSON — multer won't parse nested objects
+        fd.append("design", JSON.stringify({ ...d, logo: undefined })); // let backend fill logo URL
+        await dispatch(updateQr({ id: designing._id, data: fd })).unwrap();
+      } else {
+        await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
+      }
       setDesigning(null);
     } catch {
       // updateQr thunk already toasts the error
@@ -393,12 +401,22 @@ function CodesInner() {
                   >
                     <td className="px-5 py-3" onClick={stop}>
                       <DownloadPopover
-                        value={q.destination}
+                        value={q.shortUrl}
                         design={design}
                         filename={q.name}
                         trigger={
                           <button title="Click to download" className="block p-1.5 rounded-lg border border-border bg-white hover:border-primary/50 hover:shadow-sm transition">
-                            <QRCodeCanvas value={q.destination} size={48} fgColor={design.fgColor} bgColor={design.bgColor} level="M" includeMargin={false} />
+                            <QRCodeCanvas value={q.shortUrl} size={48} fgColor={design.fgColor} bgColor={design.bgColor} level="M" includeMargin={false} imageSettings={
+                              design.logo
+                                ? {
+                                  src: design.logo,
+                                  height: 36,
+                                  width: 36,
+                                  excavate: true,
+                                  crossOrigin: "anonymous",
+                                }
+                                : undefined
+                            } />
                           </button>
                         }
                       />

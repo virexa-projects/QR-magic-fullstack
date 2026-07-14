@@ -1,4 +1,6 @@
 import { FilterQuery } from "mongoose";
+import fs from "fs/promises";
+import path from "path";
 import { QRCode, IQRCode } from "@models/QRCode.model";
 import { ApiError } from "@utils/ApiError";
 import { generateShortCode } from "@utils/shortCode";
@@ -8,6 +10,7 @@ import { env } from "@config/env";
 import { QRType, QRStatus } from "@app-types/enums";
 import { User } from "@models/User.model";
 import { Plan, IPlan } from "@models/Plan.model";
+import { LOGO_DIR } from "@middlewares/upload.middleware";
 
 interface CreateQrInput {
   name: string;
@@ -66,6 +69,25 @@ async function validateSubscriptionAndLimits(
   if (hasLogo && !plan.features.includes("logoUpload") && plan.slug === "free") {
     throw ApiError.forbidden("Logo styling features require a premium subscription tier upgrade.");
   }
+}
+
+/**
+ * Deletes a locally-stored logo file from disk, but ONLY if the URL
+ * actually points into our own /uploads/logos directory. This guards
+ * against:
+ *   - Remote/CDN logo URLs a user might set some other way
+ *   - Leftover base64 data URLs from before this upload flow existed
+ * Deletion is best-effort: a failure here (e.g. file already gone)
+ * should never block or fail the QR update itself.
+ */
+function deleteLocalLogoIfOwned(logoUrl?: string | null) {
+  if (!logoUrl) return;
+  const prefix = `${env.API_BASE_URL}/uploads/logos/`;
+  if (!logoUrl.startsWith(prefix)) return;
+  const filename = logoUrl.slice(prefix.length);
+  // Defensive: reject anything that isn't a bare filename (path traversal guard)
+  if (!filename || filename.includes("/") || filename.includes("..")) return;
+  fs.unlink(path.join(LOGO_DIR, filename)).catch(() => {});
 }
 
 export async function createQr(ownerId: string, input: CreateQrInput) {
@@ -147,6 +169,7 @@ export async function getQrById(ownerId: string, id: string, isPrivileged = fals
   if (!isPrivileged && qr.owner.toString() !== ownerId) throw ApiError.forbidden("Access denied");
   return qr;
 }
+
 export async function getQrByShortCode(shortCode: string) {
   const qr = await QRCode.findOne({
     shortCode,
@@ -159,6 +182,7 @@ export async function getQrByShortCode(shortCode: string) {
 
   return qr;
 }
+
 export async function updateQr(
   ownerId: string,
   id: string,
@@ -186,7 +210,15 @@ export async function updateQr(
     qr.content = { ...qr.content, ...updates.content };
   }
 
-  if (updates.design) qr.design = { ...qr.design, ...updates.design } as IQRCode["design"];
+  if (updates.design) {
+    const incomingLogo = (updates.design as any).logo;
+    // Only clean up the old file if the logo is actually changing
+    // (a new upload, or an explicit removal) — not on every design save.
+    if (incomingLogo !== qr.design.logo) {
+      deleteLocalLogoIfOwned(qr.design.logo);
+    }
+    qr.design = { ...qr.design, ...updates.design } as IQRCode["design"];
+  }
 
   await qr.save();
   await cacheInvalidate(`qr:list:${ownerId}`, true);
@@ -197,6 +229,7 @@ export async function updateQr(
 
 export async function deleteQr(ownerId: string, id: string, isPrivileged = false) {
   const qr = await getQrById(ownerId, id, isPrivileged);
+  deleteLocalLogoIfOwned(qr.design?.logo);
   await qr.deleteOne();
   await cacheInvalidate(`qr:list:${ownerId}`, true);
   await cacheInvalidate(`qr:redirect:${qr.shortCode}`);

@@ -7,6 +7,7 @@ import { AnalyticsDaily } from "@models/AnalyticsDaily.model";
 import { DeviceType } from "@app-types/enums";
 import { resolveGeo } from "./Geo.service";
 import { getISTHour } from "@utils/time";
+import { notifyScan, notifyClick } from "./Notification.service";
 
 function mapDeviceType(ua: ReturnType<UAParser["getResult"]>): DeviceType {
   const os = ua.os.name?.toLowerCase() || "";
@@ -87,6 +88,12 @@ export async function recordScan(
       daily.hourlyBreakdown[hour] = (daily.hourlyBreakdown[hour] || 0) + 1;
       await daily.save();
     }
+
+    // Create a persistent notification + emit "notification:new" for the bell icon
+    const qr = await QRCode.findById(qrCodeId).select("name").lean();
+    if (qr) {
+      notifyScan(ownerId.toString(), qrCodeId.toString(), qr.name).catch(() => {});
+    }
   } catch (err) {
     console.error("[scanTracking] failed to record scan:", err);
   }
@@ -134,6 +141,12 @@ export async function recordClick(
       { $inc: { clicks: 1 }, $setOnInsert: { owner: ownerId, qrCode: qrCodeId, date } },
       { upsert: true }
     );
+
+    // Create a persistent notification + emit "notification:new" for the bell icon
+    const qr = await QRCode.findById(qrCodeId).select("name").lean();
+    if (qr) {
+      notifyClick(ownerId.toString(), qrCodeId.toString(), qr.name).catch(() => {});
+    }
   } catch (err) {
     console.error("[scanTracking] failed to record click:", err);
   }

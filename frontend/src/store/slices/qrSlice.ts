@@ -162,13 +162,25 @@ export const createQr = createAsyncThunk(
 /** Update an existing QR code */
 export const updateQr = createAsyncThunk(
   "qr/update",
-  async ({ id, data }: { id: string; data: Record<string, any> }, { rejectWithValue }) => {
+  async (
+    { id, data }: { id: string; data: FormData },
+    { rejectWithValue }
+  ) => {
     try {
-      const res = await api.patch(`/qr/${id}`, data);
-      // Backend returns: { success, message, data: {...updated qr} }
-      return { data: res.data.data as QrCode, toastMessage: res.data.message as string };
+      const res = await api.patch(`/qr/${id}`, data, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      return {
+        data: res.data.data as QrCode,
+        toastMessage: res.data.message as string,
+      };
     } catch (err: any) {
-      return rejectWithValue(err.response?.data?.message || "Failed to update QR code");
+      return rejectWithValue(
+        err.response?.data?.message || "Failed to update QR code"
+      );
     }
   }
 );
