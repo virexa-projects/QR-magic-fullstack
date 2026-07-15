@@ -33,6 +33,43 @@ export interface RecentScanRow {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Geo report types (country / region / city drill-down)              */
+/* ------------------------------------------------------------------ */
+
+export interface GeoCountry {
+  country: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoRegion {
+  country: string;
+  region: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoCity {
+  country: string;
+  region: string | null;
+  city: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoReport {
+  countries: GeoCountry[];
+  regions: GeoRegion[];
+  cities: GeoCity[];
+}
+
+/* ------------------------------------------------------------------ */
 /*  Account-wide types                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -90,6 +127,10 @@ interface AnalyticsState {
   qrScansToday: number;
   loading: boolean;
 
+  // per-QR geo report
+  geoReport: GeoReport | null;
+  geoLoading: boolean;
+
   error: string | null;
 }
 
@@ -112,6 +153,9 @@ const initialState: AnalyticsState = {
   recentScans: [],
   qrScansToday: 0,
   loading: false,
+
+  geoReport: null,
+  geoLoading: false,
 
   error: null,
 };
@@ -250,6 +294,19 @@ export const fetchQrRecentScans = createAsyncThunk(
   }
 );
 
+// NEW: country / region / city drill-down for a single QR
+export const fetchQrGeoReport = createAsyncThunk(
+  "analytics/fetchQrGeoReport",
+  async ({ id }: { id: string }, { rejectWithValue }) => {
+    try {
+      const res = await api.get(`/analytics/qr/${id}/geo`);
+      return res.data.data as GeoReport;
+    } catch (err: any) {
+      return rejectWithValue(err.response?.data?.message || "Failed to load geo report");
+    }
+  }
+);
+
 /* ------------------------------------------------------------------ */
 /*  Slice                                                               */
 /* ------------------------------------------------------------------ */
@@ -264,6 +321,8 @@ const analyticsSlice = createSlice({
       state.locations = [];
       state.recentScans = [];
       state.qrScansToday = 0;
+      state.geoReport = null;
+      state.geoLoading = false;
       state.error = null;
     },
     clearAccountAnalytics: (state) => {
@@ -353,6 +412,19 @@ const analyticsSlice = createSlice({
       })
       .addCase(fetchQrScansToday.fulfilled, (state, action) => {
         state.qrScansToday = action.payload.scansToday;
+      })
+
+      // Per-QR geo report
+      .addCase(fetchQrGeoReport.pending, (state) => {
+        state.geoLoading = true;
+      })
+      .addCase(fetchQrGeoReport.fulfilled, (state, action) => {
+        state.geoReport = action.payload;
+        state.geoLoading = false;
+      })
+      .addCase(fetchQrGeoReport.rejected, (state, action) => {
+        state.geoLoading = false;
+        state.error = action.payload as string;
       });
   },
 });
