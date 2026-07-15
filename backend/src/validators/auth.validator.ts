@@ -36,3 +36,8 @@ export const changePasswordSchema = z.object({
     newPassword: z.string().min(8).max(128),
   }),
 });
+export const googleAuthSchema = z.object({
+  body: z.object({
+    credential: z.string().min(10, "Google credential is required"),
+  }),
+});

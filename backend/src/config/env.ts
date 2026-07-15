@@ -14,7 +14,7 @@ export const env = {
   PORT: parseInt(process.env.PORT || "5000", 10),
   CLIENT_URL: process.env.CLIENT_URL || "http://localhost:3000",
   API_BASE_URL: process.env.API_BASE_URL || "http://localhost:5000",
-
+  GOOGLE_CLIENT_ID:process.env.GOOGLE_CLIENT_ID||"",
   CLUSTER_WORKERS: parseInt(process.env.CLUSTER_WORKERS || "0", 10),
 
   MONGO_URI: required("MONGO_URI", "mongodb://127.0.0.1:27017/qrbharat"),

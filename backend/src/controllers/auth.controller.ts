@@ -12,7 +12,7 @@ import {
   blacklistAccessToken,
 } from "@services/auth.service";
 import { User } from "@models/User.model";
-
+import { loginOrRegisterWithGoogle } from "@services/googleAuth.service";
 const REFRESH_COOKIE = "refreshToken";
 const ACCESS_COOKIE = "accessToken";
 
@@ -118,4 +118,13 @@ export const changePassword = catchAsync(async (req: Request, res: Response) => 
   res.clearCookie(ACCESS_COOKIE);
   res.clearCookie(REFRESH_COOKIE);
   sendSuccess(res, 200, "Password changed. Please log in again.");
+});
+export const googleAuth = catchAsync(async (req: Request, res: Response) => {
+  const { credential } = req.body;
+  const { user, accessToken, refreshToken } = await loginOrRegisterWithGoogle(credential, {
+    userAgent: req.headers["user-agent"],
+    ip: req.ip,
+  });
+  setAuthCookies(res, accessToken, refreshToken);
+  sendSuccess(res, 200, "Signed in with Google", { user, accessToken });
 });

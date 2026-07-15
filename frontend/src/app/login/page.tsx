@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/auth";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { loginUser } from "@/store/slices/authSlice";
+import { GoogleAuthButtons } from "@/components/auth/GoogleAuthButtons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -107,6 +108,15 @@ export default function LoginPage() {
               {authLoading ? "Signing in…" : <>Sign in <ArrowRight className="w-4 h-4 ml-1.5" /></>}
             </Button>
           </form>
+          <div className="mt-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">Or continue with</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="mt-4">
+            <GoogleAuthButtons mode="signin"/>
+          </div>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             New to QRBharat?{" "}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -36,16 +37,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
 
   return (
-    <Provider store={store}>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <AppInitializer>
-            <RouteGuard>{children}</RouteGuard>
-          </AppInitializer>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </Provider>
+    <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID!}>
+      <Provider store={store}>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <AppInitializer>
+              <RouteGuard>{children}</RouteGuard>
+            </AppInitializer>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </Provider>
+    </GoogleOAuthProvider>
   );
 }

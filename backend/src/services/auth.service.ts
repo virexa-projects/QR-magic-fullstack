@@ -26,7 +26,7 @@ function refreshExpiryDate(): Date {
   return new Date(Date.now() + value * unitMs);
 }
 
-async function issueTokenPair(user: IUser, device: DeviceInfo) {
+export async function issueTokenPair(user: IUser, device: DeviceInfo) {
   const accessToken = signAccessToken({
     id: user._id.toString(),
     role: user.role,
