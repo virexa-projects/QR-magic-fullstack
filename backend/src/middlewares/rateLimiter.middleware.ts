@@ -28,6 +28,12 @@ function makeLazyLimiter(
   let limiter: ReturnType<typeof rateLimit> | null = null;
 
   return (req: Request, res: Response, next: NextFunction) => {
+    // Skip entirely outside production — avoids Redis-persisted counters
+    // biting you during local dev/testing.
+    if (env.NODE_ENV !== "production") {
+      return next();
+    }
+
     if (!limiter) {
       limiter = rateLimit({ ...options, store: buildStore(prefix) });
     }
@@ -49,8 +55,8 @@ export const globalRateLimiter = makeLazyLimiter(
 
 // Tighter limits for brute-force-sensitive auth endpoints
 export const authRateLimiter = rateLimit({
-  windowMs: env.RATE_LIMIT_WINDOW_MS,
-  max: env.RATE_LIMIT_MAX,
+  windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
+  max: env.AUTH_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
 });

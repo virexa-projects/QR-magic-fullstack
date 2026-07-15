@@ -13,6 +13,9 @@ import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/auth";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { loginUser } from "@/store/slices/authSlice";
 import { GoogleAuthButtons } from "@/components/auth/GoogleAuthButtons";
+import { loginSchema, type LoginFormData } from "@/lib/validations/auth";
+
+type LoginFieldErrors = Partial<Record<keyof LoginFormData, string>>;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,10 +26,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState<"email" | "password" | null>(null);
+  const [errors, setErrors] = useState<LoginFieldErrors>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const resultAction = await dispatch(loginUser({ email, password }));
+
+    const result = loginSchema.safeParse({ email, password });
+
+    if (!result.success) {
+      const fieldErrors: LoginFieldErrors = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as keyof LoginFormData;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
+
+    const resultAction = await dispatch(loginUser(result.data));
     if (loginUser.fulfilled.match(resultAction)) {
       router.push("/dashboard");
     }
@@ -35,6 +56,7 @@ export default function LoginPage() {
   const fillDemo = () => {
     setEmail(DEMO_EMAIL);
     setPassword(DEMO_PASSWORD);
+    setErrors({});
   };
 
   const copyVal = (val: string, kind: "email" | "password") => {
@@ -62,7 +84,7 @@ export default function LoginPage() {
           <h1 className="text-3xl md:text-4xl font-bold font-heading text-foreground">Welcome back</h1>
           <p className="mt-2 text-muted-foreground text-sm">Log in to manage your QR codes and analytics.</p>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
               <Input
@@ -70,10 +92,21 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@business.in"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-11 bg-card border-border"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                }}
+                aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? "email-error" : undefined}
+                className={`h-11 bg-card border-border ${
+                  errors.email ? "border-destructive focus-visible:ring-destructive" : ""
+                }`}
               />
+              {errors.email && (
+                <p id="email-error" className="text-xs text-destructive mt-1">
+                  {errors.email}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -86,9 +119,15 @@ export default function LoginPage() {
                   type={show ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="h-11 bg-card border-border pr-10"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  className={`h-11 bg-card border-border pr-10 ${
+                    errors.password ? "border-destructive focus-visible:ring-destructive" : ""
+                  }`}
                 />
                 <button
                   type="button"
@@ -98,6 +137,11 @@ export default function LoginPage() {
                   {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {errors.password && (
+                <p id="password-error" className="text-xs text-destructive mt-1">
+                  {errors.password}
+                </p>
+              )}
             </div>
 
             <Button

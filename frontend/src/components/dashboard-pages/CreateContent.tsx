@@ -21,6 +21,7 @@ import PhonePreview from "@/components/PhonePreview";
 import SocialPicker from "@/components/dashboard/SocialPicker";
 import LabeledInputList from "@/components/dashboard/LabeledInputList";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import QrPreviewModal from "@/components/dashboard/QrPreviewModal";
 
 type QRType = "url" | "text" | "whatsapp" | "wifi" | "vcard" | "email" | "phone" | "sms" | "location";
 
@@ -65,7 +66,7 @@ const STEPS = [
 ];
 
 function CreateInner() {
-  const router=useRouter()
+  const router = useRouter();
   const dispatch = useDispatch<AppDispatch>();
   const { actionLoading } = useSelector((state: RootState) => state.qr);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -81,6 +82,18 @@ function CreateInner() {
   const [qrName, setQrName] = useState("");
   const [isDynamic, setIsDynamic] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Success modal state
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [savedQr, setSavedQr] = useState<{
+    name: string;
+    type: QRType;
+    qrValue: string;
+    fgColor: string;
+    bgColor: string;
+    isDynamic: boolean;
+    shortUrl?: string;
+  } | null>(null);
 
   const getQRValue = useCallback((): string => {
     const d = formData;
@@ -141,81 +154,92 @@ function CreateInner() {
       }
     });
   };
- const buildPayload = () => {
-  const finalQrValue = getQRValue();
+  const buildPayload = () => {
+    const finalQrValue = getQRValue();
 
-  return {
-    name: qrName.trim(),
-    type: selectedType,
-    isDynamic,
-    // highlight-start
-    destination: finalQrValue, // Ensure your required backend destination field is populated
-    // highlight-end
-    design: {
-      // highlight-start
-      fgColor: fgColor,   // Aligned with backend IQRDesign interface
-      bgColor: bgColor,   // Aligned with backend IQRDesign interface
-      // highlight-end
-      eyeColor: fgColor,  // Safe fallback matching your design preferences
-      dotStyle: "square" as const,
-      frame: "none" as const,
-      // highlight-start
-      bannerColor: cardBanner, // Matches designSchema keys perfectly
-      accentColor: cardAccent, // Matches designSchema keys perfectly
-      // highlight-end
-    },
-    qrValue: finalQrValue,
-    content: (() => {
-      switch (selectedType) {
-        case "url": return { url: formData.url || "" };
-        case "text": return { text: formData.text || "" };
-        case "whatsapp": return { phone: formData.phone || "", message: formData.message || "" };
-        case "wifi": return { ssid: formData.ssid || "", password: formData.password || "", encryption: formData.encryption || "WPA" };
-        case "vcard": return {
-          fullName: formData.fullName || "",
-          role: formData.role || "",
-          company: formData.company || "",
-          phones: parseList(formData.phones),
-          emails: parseList(formData.emails),
-          socials: parseList(formData.socials),
-        };
-        case "email": return { email: formData.email || "", subject: formData.subject || "", body: formData.body || "" };
-        case "phone": return { phone: formData.phone || "" };
-        case "sms": return { phone: formData.phone || "", message: formData.message || "" };
-        case "location": return { latitude: formData.latitude || "", longitude: formData.longitude || "" };
-        default: return {};
-      }
-    })(),
+    return {
+      name: qrName.trim(),
+      type: selectedType,
+      isDynamic,
+      destination: finalQrValue, // required backend destination field
+      design: {
+        fgColor: fgColor,
+        bgColor: bgColor,
+        eyeColor: fgColor,
+        dotStyle: "square" as const,
+        frame: "none" as const,
+        bannerColor: cardBanner,
+        accentColor: cardAccent,
+      },
+      qrValue: finalQrValue,
+      content: (() => {
+        switch (selectedType) {
+          case "url": return { url: formData.url || "" };
+          case "text": return { text: formData.text || "" };
+          case "whatsapp": return { phone: formData.phone || "", message: formData.message || "" };
+          case "wifi": return { ssid: formData.ssid || "", password: formData.password || "", encryption: formData.encryption || "WPA" };
+          case "vcard": return {
+            fullName: formData.fullName || "",
+            role: formData.role || "",
+            company: formData.company || "",
+            phones: parseList(formData.phones),
+            emails: parseList(formData.emails),
+            socials: parseList(formData.socials),
+          };
+          case "email": return { email: formData.email || "", subject: formData.subject || "", body: formData.body || "" };
+          case "phone": return { phone: formData.phone || "" };
+          case "sms": return { phone: formData.phone || "", message: formData.message || "" };
+          case "location": return { latitude: formData.latitude || "", longitude: formData.longitude || "" };
+          default: return {};
+        }
+      })(),
+    };
   };
-};
-const handleSave = async () => {
-  if (!qrName.trim()) {
-    return toast.error("Add a name first");
-  }
 
-  // 1. Generate the absolute object evaluation
-  const payload = buildPayload();
-
-  console.clear();
-  console.log("========== QR PAYLOAD ==========");
-  console.log(payload);
-
-  try {
-    // 2. Pass the data object (not the function) and unwrap promises cleanly
-    // highlight-start
-    const result = await dispatch(createQr(payload)).unwrap();
-    
-    // Clear state structures cleanly on success
+  const resetForm = () => {
     setFormData({});
     setQrName("");
     setStep(1);
     setPreviewMode("preview");
-    router.push("codes")
+  };
+
+ const handleSave = async () => {
+  if (!qrName.trim()) {
+    return toast.error("Add a name first");
+  }
+
+  const payload = buildPayload();
+
+  try {
+    const result = await dispatch(createQr(payload)).unwrap();
+    const qr = result.data; // QrCode object, per the thunk's actual return shape
+
+    setSavedQr({
+      name: qr?.name ?? payload.name,
+      type: (qr?.type as QRType) ?? payload.type,
+      qrValue: payload.qrValue,
+      fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
+      bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
+      isDynamic: qr?.isDynamic ?? payload.isDynamic,
+      shortUrl: qr?.shortUrl,
+    });
+    setShowSuccessModal(true);
   } catch (error: any) {
-    // Captures your backend ApiError messages gracefully (e.g. "Plan limit reached")
     console.error("Redux dispatch rejection traceback:", error);
+    
   }
 };
+
+  const handleViewInLibrary = () => {
+    setShowSuccessModal(false);
+    resetForm();
+    router.push("codes");
+  };
+
+  const handleCreateAnother = () => {
+    setShowSuccessModal(false);
+    resetForm();
+  };
 
   const handleSmartPaste = async () => {
     try {
@@ -330,6 +354,7 @@ const handleSave = async () => {
       </div>
     );
   };
+
   const renderFields = () => {
     switch (selectedType) {
       case "url": return renderField("Website URL", "https://yourwebsite.com", "url", "url");
@@ -527,8 +552,8 @@ const handleSave = async () => {
                       <div className="text-[11px] text-muted-foreground mt-0.5">Edit destination later without reprinting. Tracks scans.</div>
                     </div>
                   </label>
-                  <Button onClick={handleSave} className="w-full h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
-                    <Save className="w-4 h-4 mr-2" /> Save to library
+                  <Button onClick={handleSave} disabled={actionLoading} className="w-full h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
+                    <Save className="w-4 h-4 mr-2" /> {actionLoading ? "Saving…" : "Save to library"}
                   </Button>
                 </div>
               </motion.div>
@@ -600,6 +625,20 @@ const handleSave = async () => {
           </AnimatePresence>
         </div>
       </div>
+
+      <QrPreviewModal
+        open={showSuccessModal}
+        onClose={handleCreateAnother}
+        onViewInLibrary={handleViewInLibrary}
+        onCreateAnother={handleCreateAnother}
+        qrName={savedQr?.name ?? qrName}
+        qrType={savedQr?.type ?? selectedType}
+        qrValue={savedQr?.shortUrl ?? getQRValue()}
+        fgColor={savedQr?.fgColor ?? fgColor}
+        bgColor={savedQr?.bgColor ?? bgColor}
+        isDynamic={savedQr?.isDynamic ?? isDynamic}
+        shortUrl={savedQr?.shortUrl}
+      />
     </div>
   );
 }

@@ -17,25 +17,31 @@ function isToastPayload(payload: unknown): payload is { data: unknown; toastMess
   return !!payload && typeof payload === "object" && "toastMessage" in (payload as object);
 }
 
-export const toastMiddleware: Middleware = () => (next) => (action) => {
-  if (isRejectedWithValue(action)) {
-    const arg = (action.meta as any)?.arg;
-    const argSilent = arg && typeof arg === "object" && arg.silent === true;
+export const toastMiddleware: Middleware =
+  () => (next) => (action: any) => {
+    if (isRejectedWithValue(action)) {
+      const ignoredActions = [
+        "auth/fetchCurrentUser/rejected",
+      ];
 
-    if (!argSilent) {
+      if (ignoredActions.includes(action.type)) {
+        return next(action);
+      }
+
       const message =
         typeof action.payload === "string"
           ? action.payload
-          : (action.payload as any)?.message || "Something went wrong. Please try again.";
+          : action.payload?.message ||
+            "Something went wrong. Please try again.";
+
       toast.error(message);
     }
-  }
 
-  if (isFulfilled(action) && isToastPayload(action.payload)) {
-    if (action.payload.toastMessage) {
-      toast.success(action.payload.toastMessage);
+    if (isFulfilled(action) && isToastPayload(action.payload)) {
+      if (action.payload.toastMessage) {
+        toast.success(action.payload.toastMessage);
+      }
     }
-  }
 
-  return next(action);
-};
+    return next(action);
+  };
