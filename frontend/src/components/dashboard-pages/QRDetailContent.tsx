@@ -139,7 +139,7 @@ function QRDetailInner() {
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-start gap-4 min-w-0">
             <div className="bg-card rounded-2xl p-3 border border-border/60 shadow-card shrink-0">
-              <QRCodeCanvas value={qr.shortUrl} size={72} bgColor="#ffffff" fgColor="#000099" level="H" />
+              <QRCodeCanvas value={qr.destination} size={72} bgColor="#ffffff" fgColor="#000099" level="H" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1.5">

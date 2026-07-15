@@ -61,41 +61,6 @@ export default function LoginPage() {
           <h1 className="text-3xl md:text-4xl font-bold font-heading text-foreground">Welcome back</h1>
           <p className="mt-2 text-muted-foreground text-sm">Log in to manage your QR codes and analytics.</p>
 
-          {/* Demo creds card */}
-          <div className="mt-6 rounded-2xl border border-primary/20 bg-primary-soft p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-xs font-bold text-primary uppercase tracking-wider">Demo Account</span>
-            </div>
-            <div className="space-y-2 text-sm">
-              <button
-                type="button"
-                onClick={() => copyVal(DEMO_EMAIL, "email")}
-                className="w-full flex items-center justify-between bg-card rounded-lg px-3 py-2 hover:bg-card/80 transition"
-              >
-                <span className="font-mono text-foreground">{DEMO_EMAIL}</span>
-                {copied === "email" ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => copyVal(DEMO_PASSWORD, "password")}
-                className="w-full flex items-center justify-between bg-card rounded-lg px-3 py-2 hover:bg-card/80 transition"
-              >
-                <span className="font-mono text-foreground">{DEMO_PASSWORD}</span>
-                {copied === "password" ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
-              </button>
-            </div>
-            <Button
-              type="button"
-              onClick={fillDemo}
-              variant="ghost"
-              size="sm"
-              className="w-full mt-3 text-primary hover:bg-primary/10 h-8 text-xs font-semibold"
-            >
-              Auto-fill demo credentials
-            </Button>
-          </div>
-
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
