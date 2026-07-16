@@ -283,6 +283,11 @@ export async function getUserBillingHistory(userId: string) {
   return Subscription.find({ user: userId }).populate("plan").sort({ createdAt: -1 }).lean();
 }
 
+function getNextScanResetDate(currentWindowStart: Date | null): Date {
+  const base = currentWindowStart ?? new Date();
+  return new Date(base.getFullYear(), base.getMonth() + 1, 1);
+}
+
 export async function getActiveSubscription(userId: string) {
   // Get active subscription
   const subscription = await Subscription.findOne({
@@ -304,8 +309,12 @@ export async function getActiveSubscription(userId: string) {
     status: QRStatus.ACTIVE,
   });
 
-  // Surface any pending scheduled downgrade so the UI can show it
-  // (e.g. "Switching to Starter on 31 Jul").
+  // Monthly scan usage — same counter scanQuota.service reads/writes
+  // on every public QR redirect hit.
+  const user = await User.findById(userId).select("scansThisMonth scansMonthResetAt").lean();
+  const scansUsed = user?.scansThisMonth ?? 0;
+  const scansResetAt = getNextScanResetDate(user?.scansMonthResetAt ?? null);
+
   const scheduled = await Subscription.findOne({
     user: userId,
     status: SubscriptionStatus.SCHEDULED,
@@ -321,6 +330,8 @@ export async function getActiveSubscription(userId: string) {
       dynamicQrLimit: plan.dynamicQrLimit,
       qrLimit: plan.qrLimit,
       scanLimitPerMonth: plan.scanLimitPerMonth,
+      scansUsed,         
+      scansResetAt,      
     },
     scheduledChange: scheduled
       ? {
