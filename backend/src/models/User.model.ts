@@ -20,6 +20,8 @@ export interface IUser extends Document {
   currentPlan: Types.ObjectId | null;
   planExpiresAt?: Date | null;
   lastLoginAt?: Date;
+  scansThisMonth: number;          // NEW
+  scansMonthResetAt: Date | null;  // NEW
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidate: string): Promise<boolean>;
@@ -55,6 +57,8 @@ const userSchema = new Schema<IUser>(
     currentPlan: { type: Schema.Types.ObjectId, ref: "Plan", default: null },
     planExpiresAt: { type: Date, default: null },
     lastLoginAt: { type: Date },
+    scansThisMonth: { type: Number, default: 0 },       // NEW
+    scansMonthResetAt: { type: Date, default: null },   // NEW
   },
   { timestamps: true }
 );

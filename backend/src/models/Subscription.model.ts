@@ -12,10 +12,10 @@ export interface ISubscription extends Document {
   endDate: Date;
   amount: number;
   currency: string;
-  paymentGateway: "free" | "razorpay" | "stripe" | "manual";
+  paymentGateway: "free" | "paypal" | "manual";
   paymentId?: string;
-  // Razorpay order id OR Stripe checkout session id — used to look the
-  // subscription back up when the gateway calls back (verify / webhook).
+  // PayPal order id — used to look the subscription back up when the
+  // capture call or webhook comes in.
   gatewayOrderId?: string;
   invoiceUrl?: string;
   autoRenew: boolean;
@@ -36,10 +36,10 @@ const subscriptionSchema = new Schema<ISubscription>(
     startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date, required: true },
     amount: { type: Number, required: true },
-    currency: { type: String, default: "INR" },
+    currency: { type: String, default: "USD" },
     paymentGateway: {
       type: String,
-      enum: ["free", "razorpay", "stripe", "manual"],
+      enum: ["free", "paypal", "manual"],
       default: "free",
     },
     paymentId: { type: String },

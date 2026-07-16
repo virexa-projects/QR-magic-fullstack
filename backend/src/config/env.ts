@@ -46,6 +46,12 @@ export const env = {
   STRIPE_PUBLISHABLE_KEY: required("STRIPE_PUBLISHABLE_KEY"),
   STRIPE_WEBHOOK_SECRET: required("STRIPE_WEBHOOK_SECRET"),
 
+  PAYPAL_WEBHOOK_ID:process.env.PAYPAL_WEBHOOK_ID|| "",
+  PAYPAL_CLIENT_ID:process.env.PAYPAL_CLIENT_ID|| "",
+  PAYPAL_CLIENT_SECRET:process.env.PAYPAL_CLIENT_SECRET|| "",
+  PAYPAL_MODE:process.env.PAYPAL_CLIENT_SECRET|| "sandbox",
+  INR_TO_USD_FALLBACK_RATE:process.env.INR_TO_USD_FALLBACK_RATE,
+
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
 
   isProd: process.env.NODE_ENV === "production",

@@ -4,6 +4,7 @@ import { sendSuccess } from "@utils/ApiResponse";
 import { ApiError } from "@utils/ApiError";
 import * as qrService from "@services/qr.service";
 import { recordClick, recordScan } from "@services/Scantracking.service";
+import { hasScanQuotaRemaining, incrementScanUsage } from "@services/scanQuota.service";
 import { UserRole, QRType } from "@app-types/enums";
 import { env } from "@config/env";
 import { buildVCardString } from "@utils/vcard.util";
@@ -91,9 +92,6 @@ export const redirectByShortCode = catchAsync(async (req: Request, res: Response
   const { shortCode } = req.params;
   const previewFallbackUrl = `${env.FRONTEND_URL}/${shortCode}`;
 
-  // Swallow lookup failure — a missing/paused code shouldn't throw a raw
-  // JSON error at a scanning phone, it should fall back to a page that
-  // can actually explain what happened.
   const qr = await qrService.getQrByShortCode(shortCode).catch(() => null);
 
   if (!qr) {
@@ -105,9 +103,24 @@ export const redirectByShortCode = catchAsync(async (req: Request, res: Response
     return res.redirect(302, previewFallbackUrl);
   }
 
+  // Enforce the owner's monthly scan quota. hasScanQuotaRemaining rolls
+  // the counter over automatically once a new calendar month starts, so
+  // limits reset with no scheduled job needed — just the next scan after
+  // the 1st triggers the reset.
+  const withinQuota = await hasScanQuotaRemaining(qr.owner.toString());
+
+  if (!withinQuota) {
+    // Quota exhausted for this month. The physical QR still needs to
+    // resolve to *something* for whoever scans it, so send them to the
+    // frontend fallback rather than the real destination, and don't
+    // record/count this hit.
+    return res.redirect(302, previewFallbackUrl);
+  }
+
   // Fire-and-forget — the scan counts even if this write is still in
   // flight when the redirect/response is sent.
   recordScan(qr._id, qr.owner, req).catch(() => {});
+  incrementScanUsage(qr.owner.toString()).catch(() => {});
 
   if (qr.type === QRType.VCARD) {
     const vcf = buildVCardString(qr.content || {});
@@ -118,7 +131,6 @@ export const redirectByShortCode = catchAsync(async (req: Request, res: Response
   }
 
   if (qr.type === QRType.TEXT) {
-    // No URL to redirect to — plain text content is served directly.
     const text = qr.content?.text || qr.destination || "";
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     return res.send(text);

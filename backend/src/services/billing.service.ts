@@ -5,7 +5,7 @@ import { Subscription, SubscriptionStatus } from "@models/Subscription.model";
 import { User } from "@models/User.model";
 import { ApiError } from "@utils/ApiError";
 
-type PaymentGateway = "free" | "razorpay" | "stripe" | "manual";
+type PaymentGateway = "free" | "paypal" | "manual";
 
 // --- Plan tier ranking (server-side mirror of the frontend ladder) -------
 // Used to decide whether a plan change is an upgrade, lateral, or
@@ -174,8 +174,13 @@ export async function switchToFreePlan(userId: string, planId: string) {
 export async function createPendingSubscription(
   userId: string,
   planId: string,
-  gateway: "razorpay" | "stripe",
-  gatewayOrderId?: string
+  gateway: "paypal",
+  gatewayOrderId?: string,
+  // The amount/currency actually charged (post-conversion). Falls back
+  // to the plan's own price/currency if not provided, so this stays
+  // backward compatible with non-converted gateways.
+  chargedAmount?: number,
+  chargedCurrency?: string
 ) {
   const plan = await getPlanById(planId);
 
@@ -188,8 +193,8 @@ export async function createPendingSubscription(
     status: SubscriptionStatus.PENDING,
     startDate,
     endDate,
-    amount: plan.price,
-    currency: plan.currency,
+    amount: chargedAmount ?? plan.price,
+    currency: chargedCurrency ?? plan.currency,
     paymentGateway: gateway,
     gatewayOrderId,
     autoRenew: false,

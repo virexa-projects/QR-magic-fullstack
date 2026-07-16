@@ -1,23 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Check, Sparkles, Zap, TrendingUp, Crown, ArrowRight, Info, X, Loader2, CalendarClock, ShieldCheck, RefreshCw, ArrowDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { loadRazorpayScript } from "@/lib/Loadrazorpay";
 import { toast } from "sonner";
+import PaypalModal, { type PaypalResult } from "@/components/dashboard/PaypalModal";
 import {
   fetchPlans,
   fetchActiveSubscription,
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  createStripeCheckout,
-  clearRazorpayOrder,
+  fetchPaypalQuote,
+  createPaypalOrder,
+  capturePaypalOrder,
+  clearPaypalOrder,
   switchToFreePlan,
   cancelScheduledChange,
   type Gateway,
   type Plan as ApiPlan,
+  type PaypalQuote,
 } from "@/store/slices/Billingslice";
 import { formatLimit, calculateUsage } from "@/lib/billing-format";
 
@@ -25,8 +25,6 @@ import { formatLimit, calculateUsage } from "@/lib/billing-format";
 // you have typed hooks (useAppDispatch / useAppSelector) set up.
 type RootState = any;
 type AppDispatch = any;
-
-type BillingCycle = "monthly" | "yearly";
 
 // Shape of the "plan" object as it comes back nested inside
 // activeSubscription (from your sample payload). This is richer than
@@ -145,7 +143,7 @@ const freeUsageDefaults: SubscriptionUsage = {
 // Standard SaaS tier ladder. Used to decide whether picking a given plan
 // counts as an "upgrade" or a "downgrade" relative to the user's current
 // active subscription, and to gate downgrades behind a confirmation
-// step (which now schedules the change for end-of-period, rather than
+// step (which schedules the change for end-of-period, rather than
 // switching instantly).
 const PLAN_TIER_ORDER: Record<string, number> = {
   free: 0,
@@ -193,17 +191,149 @@ function statusBadgeClasses(status?: string) {
   }
 }
 
-function GatewayPickerModal({
+// ---------------------------------------------------------------------
+// PayPal JS SDK loader. Caches the promise so repeated modal opens
+// don't re-inject the script tag. currency is ALWAYS "USD" — PayPal
+// cannot receive INR, see PaypalCheckoutModal below.
+// ---------------------------------------------------------------------
+let paypalSdkPromise: Promise<boolean> | null = null;
+
+function loadPaypalScript(clientId: string, currency: string): Promise<boolean> {
+  if (typeof window !== "undefined" && (window as any).paypal) {
+    return Promise.resolve(true);
+  }
+  if (paypalSdkPromise) return paypalSdkPromise;
+
+  paypalSdkPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(
+      clientId
+    )}&currency=${encodeURIComponent(currency)}&intent=capture`;
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => {
+      paypalSdkPromise = null;
+      resolve(false);
+    };
+    document.body.appendChild(script);
+  });
+
+  return paypalSdkPromise;
+}
+
+// ---------------------------------------------------------------------
+// PayPal checkout modal. Fetches a converted-price quote up front so
+// the user sees the real USD amount before the Buttons widget even
+// renders, then renders PayPal Buttons once the SDK script has loaded.
+//
+// NOTE: this modal only handles getting the buyer TO an approved
+// PayPal order — it does not own any post-approval result state.
+// That lives in BillingInner (paypalResult), because the checkout
+// modal itself gets unmounted (onApprove closes it) right as capture
+// kicks off, so any state stored in here would vanish at exactly the
+// moment it'd be needed.
+// ---------------------------------------------------------------------
+function PaypalCheckoutModal({
   plan,
   onClose,
-  onChoose,
-  loading,
+  onCreateOrder,
+  onApprove,
+  onError,
 }: {
   plan: ApiPlan;
   onClose: () => void;
-  onChoose: (gateway: Gateway) => void;
-  loading: boolean;
+  onCreateOrder: () => Promise<string>; // returns PayPal orderId
+  onApprove: (orderId: string) => Promise<void>;
+  onError: (message: string) => void;
 }) {
+  const dispatch = useDispatch<AppDispatch>();
+  const buttonsRef = useRef<HTMLDivElement>(null);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [sdkFailed, setSdkFailed] = useState(false);
+  const [quote, setQuote] = useState<PaypalQuote | null>(null);
+  const [quoteFailed, setQuoteFailed] = useState(false);
+
+  // Preview the converted USD amount. This is a preview only — the
+  // real conversion happens again server-side when create-order fires,
+  // using the same live rate (cached hourly), so the two should match.
+  useEffect(() => {
+    let cancelled = false;
+    dispatch(fetchPaypalQuote(plan._id))
+      .unwrap()
+      .then((q: PaypalQuote) => {
+        if (!cancelled) setQuote(q);
+      })
+      .catch(() => {
+        if (!cancelled) setQuoteFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, plan._id]);
+
+  useEffect(() => {
+    const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string;
+    // PayPal cannot receive INR — this must always be USD regardless
+    // of plan.currency, which stays INR for display everywhere else.
+    const paypalCurrency = "USD";
+
+    if (!clientId) {
+      setSdkFailed(true);
+      onError("PayPal client ID is not configured.");
+      return;
+    }
+
+    loadPaypalScript(clientId, paypalCurrency).then((loaded) => {
+      if (!loaded) {
+        setSdkFailed(true);
+        onError("Couldn't load PayPal checkout. Check your connection and try again.");
+        return;
+      }
+      setSdkReady(true);
+    });
+  }, [onError]);
+
+  useEffect(() => {
+    if (!sdkReady || !buttonsRef.current) return;
+
+    const paypal = (window as any).paypal;
+    if (!paypal) return;
+
+    buttonsRef.current.innerHTML = "";
+
+    const buttons = paypal.Buttons({
+      style: { layout: "vertical", shape: "rect", label: "pay" },
+      createOrder: async () => {
+        try {
+          return await onCreateOrder();
+        } catch (err: any) {
+          onError(err?.message || "Failed to create PayPal order");
+          throw err;
+        }
+      },
+      onApprove: async (data: { orderID: string }) => {
+        try {
+          await onApprove(data.orderID);
+        } catch (err: any) {
+          onError(err?.message || "Payment approval failed");
+        }
+      },
+      onError: () => {
+        onError("PayPal checkout ran into a problem. Please try again.");
+      },
+      onCancel: () => {
+        onClose();
+      },
+    });
+
+    buttons.render(buttonsRef.current);
+
+    return () => {
+      if (buttonsRef.current) buttonsRef.current.innerHTML = "";
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sdkReady]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-card border border-border/60 rounded-2xl p-6 w-full max-w-sm shadow-xl relative">
@@ -218,27 +348,48 @@ function GatewayPickerModal({
           Pay for {plan.name}
         </h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Choose a payment method to continue. (Test mode — no real charge.)
+          Complete payment with PayPal. (Sandbox mode — no real charge.)
         </p>
 
-        <div className="mt-5 space-y-2.5">
-          <Button
-            disabled={loading}
-            onClick={() => onChoose("razorpay")}
-            className="w-full h-11 rounded-xl bg-[#0f172a] hover:bg-[#0f172a]/90 text-white justify-between px-4"
-          >
-            Pay with Razorpay
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-          </Button>
-          <Button
-            disabled={loading}
-            onClick={() => onChoose("stripe")}
-            variant="outline"
-            className="w-full h-11 rounded-xl justify-between px-4"
-          >
-            Pay with Stripe
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-          </Button>
+        {/* Converted-amount preview */}
+        <div className="mt-4 rounded-xl bg-secondary/50 border border-border/60 p-3">
+          {quoteFailed ? (
+            <p className="text-xs text-muted-foreground">
+              Charging {plan.currency === "INR" ? "₹" : "$"}
+              {plan.price.toLocaleString("en-US")} via PayPal.
+            </p>
+          ) : !quote ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Getting current rate…
+            </div>
+          ) : quote.originalCurrency === "INR" ? (
+            <p className="text-xs text-foreground">
+              <span className="font-semibold">${quote.amount.toFixed(2)} USD</span>{" "}
+              <span className="text-muted-foreground">
+                (≈ ₹{quote.originalAmount.toLocaleString("en-IN")}, rate ₹1 = ${quote.rate.toFixed(4)})
+              </span>
+            </p>
+          ) : (
+            <p className="text-xs text-foreground">
+              <span className="font-semibold">
+                ${quote.amount.toFixed(2)} {quote.currency}
+              </span>
+            </p>
+          )}
+        </div>
+
+        <div className="mt-5 min-h-[120px]">
+          {sdkFailed ? (
+            <div className="flex items-center gap-2 text-xs text-destructive">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Couldn't load PayPal. Please try again.
+            </div>
+          ) : !sdkReady ? (
+            <div className="flex items-center justify-center h-24">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : null}
+          <div ref={buttonsRef} />
         </div>
       </div>
     </div>
@@ -324,10 +475,16 @@ function BillingInner() {
     freePlanLoading: boolean;
   } = useSelector((state: RootState) => state.billing);
 
-  const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [pickerPlan, setPickerPlan] = useState<ApiPlan | null>(null);
   const [downgradeTarget, setDowngradeTarget] = useState<ApiPlan | null>(null);
   const [cancelScheduleLoading, setCancelScheduleLoading] = useState(false);
+
+  // Post-checkout result modal (processing / success / scheduled / error).
+  // Lives here, not inside PaypalCheckoutModal, because that modal is
+  // closed the instant onApprove fires — its state would be gone right
+  // when we need to show the outcome.
+  const [paypalResult, setPaypalResult] = useState<PaypalResult | null>(null);
+  const retryPlanRef = useRef<ApiPlan | null>(null);
 
   const hasRealPlans = apiPlans && apiPlans.length > 0;
   const plans = hasRealPlans ? apiPlans : fallbackPlans;
@@ -374,82 +531,116 @@ function BillingInner() {
     dispatch(fetchPlans());
     dispatch(fetchActiveSubscription());
 
-    // Handle Stripe redirect back from the hosted checkout page.
+    // Handle PayPal redirect back (only relevant if you ever fall back
+    // to the hosted redirect flow instead of the inline Buttons widget).
     const params = new URLSearchParams(window.location.search);
-    if (params.get("stripe") === "success") {
+    if (params.get("paypal") === "success") {
       toast.success("Payment received — activating your plan…");
       dispatch(fetchActiveSubscription());
       window.history.replaceState({}, "", window.location.pathname);
-    } else if (params.get("stripe") === "cancelled") {
+    } else if (params.get("paypal") === "cancelled") {
       toast("Checkout cancelled", { description: "No charge was made." });
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [dispatch]);
 
-  async function handleRazorpay(plan: ApiPlan) {
-    const result = await dispatch(createRazorpayOrder(plan._id));
-    if (createRazorpayOrder.rejected.match(result)) return;
+  // Step 1: ask the backend to create a PayPal order for this plan,
+  // stash the subscriptionId so onApprove can pass it to /capture.
+  const pendingSubscriptionIdRef = useRef<string | null>(null);
 
-    const order = result.payload as {
-      orderId: string;
-      amount: number;
-      currency: string;
-      keyId: string;
-      subscriptionId: string;
-    };
+  async function handleCreatePaypalOrder(plan: ApiPlan): Promise<string> {
+    const result = await dispatch(createPaypalOrder(plan._id));
+    if (createPaypalOrder.rejected.match(result)) {
+      throw new Error((result.payload as string) || "Failed to create PayPal order");
+    }
+    const order = result.payload as { orderId: string; subscriptionId: string };
+    pendingSubscriptionIdRef.current = order.subscriptionId;
+    return order.orderId;
+  }
 
-    const loaded = await loadRazorpayScript();
-    if (!loaded) {
-      toast.error("Couldn't load Razorpay checkout. Check your connection and try again.");
+  // Step 2: buyer approved in the PayPal popup -> capture server-side.
+  async function handlePaypalApprove(orderId: string) {
+    const subscriptionId = pendingSubscriptionIdRef.current;
+    if (!subscriptionId) {
+      setPickerPlan(null);
+      setPaypalResult({
+        status: "error",
+        message: "Something went wrong — missing subscription reference.",
+        retryable: false,
+      });
       return;
     }
 
-    const rzp = new window.Razorpay({
-      key: order.keyId,
-      amount: order.amount,
-      currency: order.currency,
-      order_id: order.orderId,
-      name: "Your App",
-      description: `Upgrade to ${plan.name} (test mode)`,
-      theme: { color: "#0f172a" },
-      handler: async (response: any) => {
-        await dispatch(
-          verifyRazorpayPayment({
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_signature: response.razorpay_signature,
-            subscriptionId: order.subscriptionId,
-          })
-        );
-        dispatch(fetchActiveSubscription());
-        setPickerPlan(null);
-      },
-      modal: {
-        ondismiss: () => {
-          dispatch(clearRazorpayOrder());
-        },
-      },
-    });
+    const capturingPlan = pickerPlan;
+    retryPlanRef.current = capturingPlan;
 
-    rzp.open();
+    // Close the PayPal buttons modal and show "processing" immediately —
+    // capture can take a couple seconds and the buyer just left the
+    // PayPal popup, so a blank gap here reads as broken.
+    setPickerPlan(null);
+    setPaypalResult({ status: "processing" });
+
+    const result = await dispatch(capturePaypalOrder({ orderId, subscriptionId }));
+
+    if (capturePaypalOrder.fulfilled.match(result)) {
+      dispatch(fetchActiveSubscription());
+      dispatch(clearPaypalOrder());
+
+      const subscription = result.payload as {
+        status: string;
+        amount: number;
+        currency: string;
+        paymentId?: string;
+        startDate?: string;
+        createdAt?: string;
+      };
+
+      if (subscription.status === "scheduled") {
+        // Paid downgrade — captured, but scheduled for end-of-period
+        // rather than active right now. See activateOrScheduleSubscription.
+        setPaypalResult({
+          status: "scheduled",
+          planName: capturingPlan?.name ?? "your new plan",
+          fromPlanName: currentPlanName,
+          effectiveDate: subscription.startDate ?? new Date().toISOString(),
+        });
+      } else {
+        setPaypalResult({
+          status: "success",
+          planName: capturingPlan?.name ?? "your new plan",
+          amount: subscription.amount,
+          currency: subscription.currency,
+          paymentId: subscription.paymentId ?? orderId,
+          date: subscription.createdAt ?? new Date().toISOString(),
+        });
+      }
+    } else {
+      setPaypalResult({
+        status: "error",
+        message: (result.payload as string) || "Payment could not be completed.",
+        retryable: true,
+      });
+    }
+
+    pendingSubscriptionIdRef.current = null;
   }
 
-  async function handleStripe(plan: ApiPlan) {
-    const result = await dispatch(createStripeCheckout(plan._id));
-    if (createStripeCheckout.rejected.match(result)) return;
-
-    const { url } = result.payload as { url: string; sessionId: string };
-    window.location.href = url;
+  function handlePaypalError(message: string) {
+    retryPlanRef.current = pickerPlan;
+    setPickerPlan(null);
+    setPaypalResult({ status: "error", message, retryable: true });
   }
 
-  function handleChooseGateway(gateway: Gateway) {
-    if (!pickerPlan) return;
-    if (gateway === "razorpay") handleRazorpay(pickerPlan);
-    else handleStripe(pickerPlan);
+  function handleRetryPaypal() {
+    const plan = retryPlanRef.current;
+    setPaypalResult(null);
+    if (plan) {
+      setPickerPlan(plan); // reopens PaypalCheckoutModal for the same plan
+    }
   }
 
-  // Free plans cost ₹0. switchToFreePlan on the backend now schedules
-  // the switch for end-of-period if a paid plan is currently active,
+  // Free plans cost ₹0. switchToFreePlan on the backend schedules the
+  // switch for end-of-period if a paid plan is currently active,
   // instead of applying it instantly — see handleSelectPlan below.
   async function handleSwitchToFree(plan: ApiPlan) {
     const result = await dispatch(switchToFreePlan(plan._id));
@@ -477,8 +668,8 @@ function BillingInner() {
     }
 
     if (isDowngrade) {
-      // Paid -> lower paid tier (e.g. Business -> Starter): confirm first,
-      // then the payment (if any) gets scheduled for end-of-period too.
+      // Paid -> lower paid tier: confirm first, then the payment (if
+      // any) gets scheduled for end-of-period too.
       setDowngradeTarget(plan);
       return;
     }
@@ -581,7 +772,8 @@ function BillingInner() {
                   {subscriptionPlan.name}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  ₹{activeSubscription.amount.toLocaleString("en-IN")} /{" "}
+                  {activeSubscription.currency === "INR" ? "₹" : "$"}
+                  {activeSubscription.amount.toLocaleString("en-US")} /{" "}
                   {subscriptionPlan.durationDays >= 365 ? "yr" : "mo"}
                 </div>
               </div>
@@ -705,7 +897,7 @@ function BillingInner() {
         </div>
       </section>
 
-      {/* Plans header with billing toggle */}
+      {/* Plans header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold font-heading text-foreground">
@@ -717,23 +909,6 @@ function BillingInner() {
               : "Loading plans from the server…"}
           </p>
         </div>
-        <Tabs value={cycle} onValueChange={(v) => setCycle(v as BillingCycle)}>
-          <TabsList className="bg-secondary p-1 rounded-full h-9">
-            <TabsTrigger
-              value="monthly"
-              className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              Monthly
-            </TabsTrigger>
-            <TabsTrigger
-              value="yearly"
-              className="rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              Yearly
-              <span className="ml-1.5 text-[10px] font-bold text-emerald">−17%</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       {/* Plan grid */}
@@ -741,8 +916,7 @@ function BillingInner() {
         {plans.map((plan: ApiPlan, idx: number) => {
           const isCurrent = plan._id === currentPlanId && isSubscriptionActive;
           const isPopular = idx === 1; // middle plan highlighted, same as original design
-          const price = cycle === "monthly" ? plan.price : Math.round(plan.price * 10); // simple yearly approximation
-          const period = cycle === "monthly" ? "/mo" : "/yr";
+          const price = plan.price;
 
           const targetRank = tierRankOf(planKey(plan));
           const isDowngrade = !isCurrent && isSubscriptionActive && targetRank < currentTierRank;
@@ -767,7 +941,7 @@ function BillingInner() {
           } else if (plan.price === 0 && freePlanLoading) {
             buttonLabel = <Loader2 className="w-4 h-4 animate-spin mx-auto" />;
           } else if (plan.price === 0) {
-            buttonLabel = isDowngrade ? "Switch to Free" : "Switch to Free";
+            buttonLabel = "Switch to Free";
           } else if (isDowngrade) {
             buttonLabel = (
               <span className="inline-flex items-center gap-1.5">
@@ -822,10 +996,11 @@ function BillingInner() {
 
               <div className="mt-5 flex items-baseline gap-1">
                 <span className="text-3xl font-bold font-heading text-foreground">
-                  ₹{price.toLocaleString("en-IN")}
+                  {plan.currency === "INR" ? "₹" : "$"}
+                  {price.toLocaleString("en-US")}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {price === 0 ? "forever" : period}
+                  {price === 0 ? "forever" : "/mo"}
                 </span>
               </div>
 
@@ -893,11 +1068,12 @@ function BillingInner() {
       </div>
 
       {pickerPlan && (
-        <GatewayPickerModal
+        <PaypalCheckoutModal
           plan={pickerPlan}
-          loading={checkoutLoading}
           onClose={() => setPickerPlan(null)}
-          onChoose={handleChooseGateway}
+          onCreateOrder={() => handleCreatePaypalOrder(pickerPlan)}
+          onApprove={handlePaypalApprove}
+          onError={handlePaypalError}
         />
       )}
 
@@ -909,6 +1085,15 @@ function BillingInner() {
           loading={checkoutLoading || freePlanLoading}
           onClose={() => setDowngradeTarget(null)}
           onConfirm={confirmDowngrade}
+        />
+      )}
+
+      {paypalResult && (
+        <PaypalModal
+          result={paypalResult}
+          loading={checkoutLoading}
+          onClose={() => setPaypalResult(null)}
+          onRetry={handleRetryPaypal}
         />
       )}
     </div>

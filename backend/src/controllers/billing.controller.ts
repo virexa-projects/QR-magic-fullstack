@@ -4,8 +4,9 @@ import { sendSuccess } from "@utils/ApiResponse";
 import { ApiError } from "@utils/ApiError";
 import * as billingService from "@services/billing.service";
 import * as paymentService from "@services/Payment.service";
-import { env } from "@config/env";
+import { convertInrToUsd } from "@services/currency.service";
 import crypto from "crypto";
+
 export const plans = catchAsync(async (_req: Request, res: Response) => {
   const data = await billingService.listPlans();
   sendSuccess(res, 200, "Plans fetched", data);
@@ -28,7 +29,7 @@ export const subscribe = catchAsync(async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------
 // Free plan switch (no gateway) — signup default + downgrade from a
 // paid plan back to Free. If the user has an active paid plan running,
-// this now SCHEDULES the switch for when that plan expires instead of
+// this SCHEDULES the switch for when that plan expires instead of
 // applying it instantly; billingService.switchToFreePlan handles that.
 // ---------------------------------------------------------------------
 /** POST /billing/subscribe-free  { planId } */
@@ -70,117 +71,144 @@ export const cancelScheduledChange = catchAsync(async (req: Request, res: Respon
 });
 
 // ---------------------------------------------------------------------
-// Razorpay
+// PayPal
 // ---------------------------------------------------------------------
 
-/** POST /billing/razorpay/create-order  { planId } */
-export const createRazorpayOrder = catchAsync(async (req: Request, res: Response) => {
+/** POST /billing/paypal/create-order  { planId } */
+export const createPaypalOrder = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const { planId } = req.body;
 
   const plan = await billingService.getPlanById(planId);
-  const receipt = `QR${crypto.randomBytes(6).toString("hex")}`;
-  const order = await paymentService.createRazorpayOrder(plan.price, plan.currency || "INR", receipt);
+  const referenceId = `QR${crypto.randomBytes(6).toString("hex")}`;
+
+  // PayPal can't receive INR — convert to USD at the current rate.
+  // plan.currency/plan.price stay INR everywhere else in the app;
+  // this conversion is PayPal-transaction-only.
+  let chargeAmount = plan.price;
+  let chargeCurrency = plan.currency || "USD";
+  let rate: number | null = null;
+
+  if (chargeCurrency === "INR") {
+    const conversion = await convertInrToUsd(plan.price);
+    chargeAmount = conversion.usdAmount;
+    chargeCurrency = "USD";
+    rate = conversion.rate;
+  }
+
+  const order = await paymentService.createPaypalOrder(chargeAmount, chargeCurrency, referenceId);
 
   const { subscription } = await billingService.createPendingSubscription(
     req.user.id,
     planId,
-    "razorpay",
-    order.id
+    "paypal",
+    order.id,
+    chargeAmount,
+    chargeCurrency
   );
 
-  sendSuccess(res, 201, "Razorpay order created", {
+  sendSuccess(res, 201, "PayPal order created", {
     orderId: order.id,
-    amount: order.amount,
-    currency: order.currency,
-    keyId: env.RAZORPAY_KEY_ID, // safe to expose — this is the public key id
     subscriptionId: subscription._id,
+    amount: chargeAmount,
+    currency: chargeCurrency,
+    originalAmount: plan.price,
+    originalCurrency: plan.currency,
+    conversionRate: rate,
   });
 });
 
-/** POST /billing/razorpay/verify  { razorpay_order_id, razorpay_payment_id, razorpay_signature, subscriptionId } */
-export const verifyRazorpayPayment = catchAsync(async (req: Request, res: Response) => {
+/**
+ * GET /billing/paypal/quote/:planId
+ * Lets the frontend show the converted USD amount BEFORE the user
+ * clicks Pay (create-order locks in a real PayPal order, which you
+ * don't want to do just to preview a price).
+ */
+export const getPaypalQuote = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, subscriptionId } = req.body;
+  const plan = await billingService.getPlanById(req.params.planId);
 
-  const isValid = paymentService.verifyRazorpaySignature(
-    razorpay_order_id,
-    razorpay_payment_id,
-    razorpay_signature
-  );
+  if (plan.currency === "INR") {
+    const { usdAmount, rate } = await convertInrToUsd(plan.price);
+    return sendSuccess(res, 200, "Quote fetched", {
+      amount: usdAmount,
+      currency: "USD",
+      originalAmount: plan.price,
+      originalCurrency: "INR",
+      rate,
+    });
+  }
 
-  if (!isValid) {
+  sendSuccess(res, 200, "Quote fetched", {
+    amount: plan.price,
+    currency: plan.currency,
+    originalAmount: plan.price,
+    originalCurrency: plan.currency,
+    rate: 1,
+  });
+});
+/**
+ * POST /billing/paypal/capture  { orderId, subscriptionId }
+ * Called by the frontend once the buyer approves the order in the
+ * PayPal popup. This is where the money actually moves.
+ */
+export const capturePaypalOrder = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const { orderId, subscriptionId } = req.body;
+
+  const capture = await paymentService.capturePaypalOrder(orderId);
+
+  const captureRecord = capture.purchase_units?.[0]?.payments?.captures?.[0];
+  const isCompleted = capture.status === "COMPLETED" && captureRecord?.status === "COMPLETED";
+
+  if (!isCompleted || !captureRecord) {
     await billingService.markSubscriptionCancelled(subscriptionId);
-    throw ApiError.badRequest("Payment verification failed. Signature mismatch.");
+    throw ApiError.badRequest("Payment was not completed.");
   }
 
   // Activates immediately for upgrades/lateral moves, or schedules for
   // end-of-period if this payment is a downgrade from an active plan.
   const subscription = await billingService.activateOrScheduleSubscription(
     subscriptionId,
-    razorpay_payment_id
+    captureRecord.id
   );
-  sendSuccess(res, 200, "Payment verified", subscription);
-});
-
-// ---------------------------------------------------------------------
-// Stripe
-// ---------------------------------------------------------------------
-
-/** POST /billing/stripe/create-checkout-session  { planId } */
-export const createStripeCheckout = catchAsync(async (req: Request, res: Response) => {
-  if (!req.user) throw ApiError.unauthorized();
-  const { planId } = req.body;
-
-  const plan = await billingService.getPlanById(planId);
-  const { subscription } = await billingService.createPendingSubscription(req.user.id, planId, "stripe");
-
-  const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
-  const session = await paymentService.createStripeCheckoutSession({
-    planName: plan.name,
-    amount: plan.price,
-    currency: plan.currency || "INR",
-    userId: req.user.id,
-    planId: String(plan._id),
-    successUrl: `${frontendUrl}/dashboard/billing?stripe=success&subscriptionId=${subscription._id}`,
-    cancelUrl: `${frontendUrl}/dashboard/billing?stripe=cancelled`,
-  });
-
-  subscription.gatewayOrderId = session.id;
-  await subscription.save();
-
-  sendSuccess(res, 201, "Stripe checkout session created", {
-    url: session.url,
-    sessionId: session.id,
-  });
+  sendSuccess(res, 200, "Payment captured", subscription);
 });
 
 /**
- * POST /billing/stripe/webhook
- * IMPORTANT: this route must receive the RAW body, not JSON-parsed —
- * see ENV_SETUP.md for the required app.ts change. No auth middleware
- * runs on this route; Stripe calls it directly from their servers.
+ * POST /billing/paypal/webhook
+ * PayPal calls this directly (no user session, no auth middleware).
+ * Acts as a backstop in case the client-driven capture call above
+ * never completes (e.g. tab closed mid-flow) and for later events
+ * like refunds/disputes.
  */
-export const stripeWebhook = catchAsync(async (req: Request, res: Response) => {
-  const signature = req.headers["stripe-signature"] as string;
+export const paypalWebhook = catchAsync(async (req: Request, res: Response) => {
+  const isValid = await paymentService.verifyPaypalWebhookSignature(
+    req.headers as Record<string, string>,
+    req.body
+  );
 
-  let event;
-  try {
-    event = paymentService.constructStripeEvent(req.body, signature);
-  } catch (err: any) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  if (!isValid) {
+    return res.status(400).json({ received: false });
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as any;
-    const subscription = await billingService.findSubscriptionByGatewayOrderId(session.id);
-    if (subscription) {
-      // Activates immediately for upgrades/lateral moves, or schedules
-      // for end-of-period if this payment is a downgrade.
-      await billingService.activateOrScheduleSubscription(
-        String(subscription._id),
-        (session.payment_intent as string) || session.id
-      );
+  const event = req.body;
+
+  if (
+    event.event_type === "CHECKOUT.ORDER.APPROVED" ||
+    event.event_type === "PAYMENT.CAPTURE.COMPLETED"
+  ) {
+    const orderId =
+      event.resource?.supplementary_data?.related_ids?.order_id || event.resource?.id;
+
+    if (orderId) {
+      const subscription = await billingService.findSubscriptionByGatewayOrderId(orderId);
+      if (subscription && subscription.status === "pending") {
+        await billingService.activateOrScheduleSubscription(
+          String(subscription._id),
+          event.resource?.id
+        );
+      }
     }
   }
 
