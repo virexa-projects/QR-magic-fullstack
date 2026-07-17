@@ -39,12 +39,7 @@ export const env = {
   SHORT_URL_BASE: process.env.SHORT_URL_BASE || "https://qrb.in",
 
   // Payment
-  RAZORPAY_KEY_ID: required("RAZORPAY_KEY_ID"),
-  RAZORPAY_KEY_SECRET: required("RAZORPAY_KEY_SECRET"),
-
-  STRIPE_SECRET_KEY: required("STRIPE_SECRET_KEY"),
-  STRIPE_PUBLISHABLE_KEY: required("STRIPE_PUBLISHABLE_KEY"),
-  STRIPE_WEBHOOK_SECRET: required("STRIPE_WEBHOOK_SECRET"),
+ 
 
   PAYPAL_WEBHOOK_ID:process.env.PAYPAL_WEBHOOK_ID|| "",
   PAYPAL_CLIENT_ID:process.env.PAYPAL_CLIENT_ID|| "",

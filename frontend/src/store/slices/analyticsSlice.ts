@@ -161,13 +161,18 @@ const initialState: AnalyticsState = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Account-wide thunks — now take startDate/endDate, default to the   */
-/*  current month on the backend when omitted.                         */
+/*  Account-wide thunks — take startDate/endDate, default to the       */
+/*  current month on the backend when omitted. The generics below are  */
+/*  spelled out explicitly (`<Return, Args | void>`) so the resulting   */
+/*  action creators can be called with zero arguments — a runtime      */
+/*  default on the payload-creator's parameter alone doesn't make       */
+/*  createAsyncThunk's inferred ThunkArg optional.                     */
 /* ------------------------------------------------------------------ */
 
-export const fetchSummary = createAsyncThunk(
+export const fetchSummary = createAsyncThunk<DashboardSummary, DateRangeParams | void>(
   "analytics/fetchSummary",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/summary", { params: { startDate, endDate } });
       return res.data.data as DashboardSummary;
@@ -177,9 +182,10 @@ export const fetchSummary = createAsyncThunk(
   }
 );
 
-export const fetchTrend = createAsyncThunk(
+export const fetchTrend = createAsyncThunk<TrendPoint[], DateRangeParams | void>(
   "analytics/fetchTrend",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/trend", { params: { startDate, endDate } });
       return res.data.data as TrendPoint[];
@@ -189,9 +195,10 @@ export const fetchTrend = createAsyncThunk(
   }
 );
 
-export const fetchDevices = createAsyncThunk(
+export const fetchDevices = createAsyncThunk<Record<string, number>, DateRangeParams | void>(
   "analytics/fetchDevices",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/devices", { params: { startDate, endDate } });
       return res.data.data as Record<string, number>;
@@ -201,9 +208,10 @@ export const fetchDevices = createAsyncThunk(
   }
 );
 
-export const fetchAccountLocations = createAsyncThunk(
+export const fetchAccountLocations = createAsyncThunk<QrLocationRow[], { limit?: number } | void>(
   "analytics/fetchAccountLocations",
-  async ({ limit = 10 }: { limit?: number } = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { limit = 10 } = params ?? {};
     try {
       const res = await api.get("/analytics/locations", { params: { limit } });
       return res.data.data as QrLocationRow[];
@@ -213,9 +221,10 @@ export const fetchAccountLocations = createAsyncThunk(
   }
 );
 
-export const fetchHourly = createAsyncThunk(
+export const fetchHourly = createAsyncThunk<HourlyPoint[], DateRangeParams | void>(
   "analytics/fetchHourly",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/hourly", { params: { startDate, endDate } });
       return res.data.data as HourlyPoint[];
@@ -225,10 +234,11 @@ export const fetchHourly = createAsyncThunk(
   }
 );
 
-// NEW: powers the "Top performing QRs today" card on the overview page
-export const fetchTopQrs = createAsyncThunk(
+// Powers the "Top performing QRs today" card on the overview page
+export const fetchTopQrs = createAsyncThunk<TopQr[], { limit?: number } | void>(
   "analytics/fetchTopQrs",
-  async ({ limit = 4 }: { limit?: number } = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { limit = 4 } = params ?? {};
     try {
       const res = await api.get("/analytics/top-qrs", { params: { limit } });
       return res.data.data as TopQr[];
@@ -239,8 +249,9 @@ export const fetchTopQrs = createAsyncThunk(
 );
 
 /* ------------------------------------------------------------------ */
-/*  Per-QR thunks — fetchQrAnalytics now takes startDate/endDate;       */
+/*  Per-QR thunks — fetchQrAnalytics takes startDate/endDate;           */
 /*  fetchQrLocations / fetchQrRecentScans unchanged (limit-based).      */
+/*  These all require an `id`, so they keep a required-argument shape.  */
 /* ------------------------------------------------------------------ */
 
 export const fetchQrAnalytics = createAsyncThunk(
@@ -294,7 +305,7 @@ export const fetchQrRecentScans = createAsyncThunk(
   }
 );
 
-// NEW: country / region / city drill-down for a single QR
+// Country / region / city drill-down for a single QR
 export const fetchQrGeoReport = createAsyncThunk(
   "analytics/fetchQrGeoReport",
   async ({ id }: { id: string }, { rejectWithValue }) => {

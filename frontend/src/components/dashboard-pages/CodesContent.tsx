@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
+import { Slot } from "@radix-ui/react-slot";
 import { AppDispatch, RootState } from "@/store";
 import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -593,20 +594,30 @@ function CodesInner() {
   );
 }
 
-function IconBtn({ children, onClick, title, accent, danger }: { children: React.ReactNode; onClick: () => void; title: string; accent?: boolean; danger?: boolean }) {
+interface IconBtnProps {
+  children: React.ReactNode;
+  title: string;
+  accent?: boolean;
+  danger?: boolean;
+  /** When true, renders the single child element directly (e.g. a Next.js <Link>)
+   *  instead of wrapping it in a <button>, so onClick becomes optional. */
+  asChild?: boolean;
+  onClick?: () => void;
+}
+
+function IconBtn({ children, onClick, title, accent, danger, asChild }: IconBtnProps) {
+  const Comp = asChild ? Slot : "button";
+  const className = `p-2 rounded-lg transition ${danger
+    ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+    : accent
+      ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
+      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+    }`;
+
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`p-2 rounded-lg transition ${danger
-        ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-        : accent
-          ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
-          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-        }`}
-    >
+    <Comp onClick={onClick} title={title} className={className}>
       {children}
-    </button>
+    </Comp>
   );
 }
 

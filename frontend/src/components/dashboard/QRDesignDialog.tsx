@@ -12,7 +12,7 @@ interface Props {
   initial: QRDesign;
   qrValue: string;
   qrName: string;
-  onSave: (d: QRDesign) => void;
+  onSave: (d: QRDesign, logoFile?: File | null) => void;
 }
 
 const PRESETS: { name: string; design: Partial<QRDesign> }[] = [
