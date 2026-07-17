@@ -16,8 +16,11 @@ import redirectRouter from "@routes/redirect.routes";
 
 export function createApp(): Application {
   const app = express();
+// Correct (what fixed the earlier IP-detection bug):
+app.set("trust proxy", "loopback, linklocal, uniquelocal");
 
-  app.set("trust proxy", 1); // required for correct req.ip / rate limiting behind a load balancer
+// Reverted (brings back the wrong-IP bug):
+app.set("trust proxy", 1);
 
   app.use(helmet());
   app.use(

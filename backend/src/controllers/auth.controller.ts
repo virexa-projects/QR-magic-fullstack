@@ -19,9 +19,10 @@ const ACCESS_COOKIE = "accessToken";
 function cookieOptions(maxAgeMs: number) {
   return {
     httpOnly: true,
-    secure: env.isProd,
-    sameSite: "lax" as const,
-    domain: env.isProd ? env.COOKIE_DOMAIN : undefined,
+    secure: env.isProd, // true in production HTTPS
+    sameSite: env.isProd ? ("none" as const) : ("lax" as const),
+    // domain: env.isProd ? env.COOKIE_DOMAIN : undefined,
+     path: "/",
     maxAge: maxAgeMs,
   };
 }
