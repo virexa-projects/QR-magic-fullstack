@@ -14,7 +14,7 @@ export const env = {
   PORT: parseInt(process.env.PORT || "5000", 10),
   CLIENT_URL: process.env.CLIENT_URL || "http://localhost:3000",
   API_BASE_URL: process.env.API_BASE_URL || "http://localhost:5000",
-
+  GOOGLE_CLIENT_ID:process.env.GOOGLE_CLIENT_ID||"",
   CLUSTER_WORKERS: parseInt(process.env.CLUSTER_WORKERS || "0", 10),
 
   MONGO_URI: required("MONGO_URI", "mongodb://127.0.0.1:27017/qrbharat"),
@@ -31,18 +31,21 @@ export const env = {
 
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000", 10),
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || "120", 10),
+  AUTH_RATE_LIMIT_WINDOW_MS: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || "60000", 10),
+  AUTH_RATE_LIMIT_MAX: parseInt(process.env.AUTH_RATE_LIMIT_MAX || "120", 10),
 
   BCRYPT_SALT_ROUNDS: parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10),
 
   SHORT_URL_BASE: process.env.SHORT_URL_BASE || "https://qrb.in",
 
   // Payment
-  RAZORPAY_KEY_ID: required("RAZORPAY_KEY_ID"),
-  RAZORPAY_KEY_SECRET: required("RAZORPAY_KEY_SECRET"),
+ 
 
-  STRIPE_SECRET_KEY: required("STRIPE_SECRET_KEY"),
-  STRIPE_PUBLISHABLE_KEY: required("STRIPE_PUBLISHABLE_KEY"),
-  STRIPE_WEBHOOK_SECRET: required("STRIPE_WEBHOOK_SECRET"),
+  PAYPAL_WEBHOOK_ID:process.env.PAYPAL_WEBHOOK_ID|| "",
+  PAYPAL_CLIENT_ID:process.env.PAYPAL_CLIENT_ID|| "",
+  PAYPAL_CLIENT_SECRET:process.env.PAYPAL_CLIENT_SECRET|| "",
+  PAYPAL_MODE:process.env.PAYPAL_CLIENT_SECRET|| "sandbox",
+  INR_TO_USD_FALLBACK_RATE:process.env.INR_TO_USD_FALLBACK_RATE,
 
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
 

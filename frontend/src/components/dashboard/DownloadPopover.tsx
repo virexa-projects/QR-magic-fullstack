@@ -76,11 +76,10 @@ export default function DownloadPopover({ value, design, filename, trigger }: Pr
                 <button
                   key={s}
                   onClick={() => setSize(s)}
-                  className={`text-[11px] font-medium py-1.5 rounded-md border transition ${
-                    size === s
+                  className={`text-[11px] font-medium py-1.5 rounded-md border transition ${size === s
                       ? "bg-foreground text-background border-foreground"
                       : "bg-background border-border text-muted-foreground hover:border-foreground/40"
-                  }`}
+                    }`}
                 >
                   {s}
                 </button>
@@ -110,9 +109,46 @@ export default function DownloadPopover({ value, design, filename, trigger }: Pr
         </div>
 
         {/* Hidden render for export */}
+        {/* Hidden render for export */}
         <div ref={hiddenRef} className="absolute -left-[9999px] top-0 pointer-events-none">
-          <QRCodeCanvas value={value} size={size} fgColor={design.fgColor} bgColor={design.bgColor} level="H" includeMargin />
-          <QRCodeSVG value={value} size={size} fgColor={design.fgColor} bgColor={design.bgColor} level="H" includeMargin />
+          <QRCodeCanvas
+            value={value}
+            size={size}
+            fgColor={design.fgColor}
+            bgColor={design.bgColor}
+            level="H"
+            includeMargin
+            imageSettings={
+              design.logo
+                ? {
+                  src: design.logo,
+                  height: size * 0.2,   // ~20% of QR size, scales with the export size
+                  width: size * 0.2,
+                  excavate: true,
+                  crossOrigin: "anonymous",
+                }
+                : undefined
+            }
+          />
+          <QRCodeSVG
+            value={value}
+            size={size}
+            fgColor={design.fgColor}
+            bgColor={design.bgColor}
+            level="H"
+            includeMargin
+            imageSettings={
+              design.logo
+                ? {
+                  src: design.logo,
+                  height: size * 0.2,
+                  width: size * 0.2,
+                  excavate: true,
+                  crossOrigin: "anonymous",
+                }
+                : undefined
+            }
+          />
         </div>
       </PopoverContent>
     </Popover>

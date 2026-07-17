@@ -2,8 +2,16 @@ import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
-export type Gateway = "razorpay" | "stripe";
+export type Gateway = "paypal";
 export type SubscriptionStatus = "pending" | "active" | "cancelled" | "failed" | "scheduled" | "expired";
+
+export interface PaypalQuote {
+  amount: number;
+  currency: string;
+  originalAmount: number;
+  originalCurrency: string;
+  rate: number;
+}
 
 export interface Plan {
   _id: string;
@@ -16,9 +24,6 @@ export interface Plan {
   isActive: boolean;
 }
 
-// Surfaced by GET /billing/active when a downgrade is pending — the
-// user's current plan is untouched until effectiveDate arrives, at
-// which point the backend cron flips this subscription over.
 export interface ScheduledChange {
   planName: string;
   effectiveDate: string;
@@ -37,19 +42,21 @@ export interface Subscription {
   scheduledChange?: ScheduledChange | null;
 }
 
-interface RazorpayOrderPayload {
+interface PaypalOrderPayload {
   orderId: string;
+  subscriptionId: string;
   amount: number;
   currency: string;
-  keyId: string;
-  subscriptionId: string;
+  originalAmount: number;
+  originalCurrency: string;
+  conversionRate: number | null;
 }
 
 interface BillingState {
   plans: Plan[];
   activeSubscription: Subscription | null;
   history: Subscription[];
-  razorpayOrder: RazorpayOrderPayload | null;
+  paypalOrder: PaypalOrderPayload | null;
   loading: boolean;
   checkoutLoading: boolean;
   freePlanLoading: boolean;
@@ -61,7 +68,7 @@ const initialState: BillingState = {
   plans: [],
   activeSubscription: null,
   history: [],
-  razorpayOrder: null,
+  paypalOrder: null,
   loading: false,
   checkoutLoading: false,
   freePlanLoading: false,
@@ -102,54 +109,49 @@ export const fetchBillingHistory = createAsyncThunk(
   }
 );
 
-/** Step 1 of Razorpay flow — create the order server-side. */
-export const createRazorpayOrder = createAsyncThunk(
-  "billing/createRazorpayOrder",
+/**
+ * Preview the converted PayPal amount BEFORE the user commits to
+ * checkout. Does not create a real PayPal order — just calls the
+ * backend's currency-conversion helper so the modal can show
+ * "≈ $3.61 USD" before the buttons render.
+ */
+export const fetchPaypalQuote = createAsyncThunk(
+  "billing/fetchPaypalQuote",
   async (planId: string, { rejectWithValue }) => {
     try {
-      const res = await api.post("/billing/razorpay/create-order", { planId });
-      return res.data.data as RazorpayOrderPayload;
+      const res = await api.get(`/billing/paypal/quote/${planId}`);
+      return res.data.data as PaypalQuote;
     } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to start Razorpay checkout";
+      return rejectWithValue(err.response?.data?.message || "Failed to fetch price quote");
+    }
+  }
+);
+
+/** Step 1 of PayPal flow — create the order server-side (locks in the real charge amount). */
+export const createPaypalOrder = createAsyncThunk(
+  "billing/createPaypalOrder",
+  async (planId: string, { rejectWithValue }) => {
+    try {
+      const res = await api.post("/billing/paypal/create-order", { planId });
+      return res.data.data as PaypalOrderPayload;
+    } catch (err: any) {
+      const message = err.response?.data?.message || "Failed to start PayPal checkout";
       toast.error(message);
       return rejectWithValue(message);
     }
   }
 );
 
-/** Step 2 of Razorpay flow — verify the signature returned by the widget. */
-export const verifyRazorpayPayment = createAsyncThunk(
-  "billing/verifyRazorpayPayment",
-  async (
-    payload: {
-      razorpay_order_id: string;
-      razorpay_payment_id: string;
-      razorpay_signature: string;
-      subscriptionId: string;
-    },
-    { rejectWithValue }
-  ) => {
+/** Step 2 of PayPal flow — capture after the buyer approves in the popup. */
+export const capturePaypalOrder = createAsyncThunk(
+  "billing/capturePaypalOrder",
+  async (payload: { orderId: string; subscriptionId: string }, { rejectWithValue }) => {
     try {
-      const res = await api.post("/billing/razorpay/verify", payload);
+      const res = await api.post("/billing/paypal/capture", payload);
       toast.success("Payment successful. Plan upgraded!");
       return res.data.data as Subscription;
     } catch (err: any) {
-      const message = err.response?.data?.message || "Payment verification failed";
-      toast.error(message);
-      return rejectWithValue(message);
-    }
-  }
-);
-
-/** Stripe flow — create a hosted checkout session, then redirect to it. */
-export const createStripeCheckout = createAsyncThunk(
-  "billing/createStripeCheckout",
-  async (planId: string, { rejectWithValue }) => {
-    try {
-      const res = await api.post("/billing/stripe/create-checkout-session", { planId });
-      return res.data.data as { url: string; sessionId: string };
-    } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to start Stripe checkout";
+      const message = err.response?.data?.message || "Payment capture failed";
       toast.error(message);
       return rejectWithValue(message);
     }
@@ -158,13 +160,8 @@ export const createStripeCheckout = createAsyncThunk(
 
 /**
  * No-gateway plan switch, used for Free (price === 0) plans only. The
- * backend (`switchToFreePlan` service) rejects any plan with price > 0,
- * so this can't be used to sneak a paid plan for free.
- *
- * NOTE: if the user has an active paid plan, the backend now SCHEDULES
- * the switch for end-of-period instead of applying it instantly — the
- * returned Subscription in that case is the SCHEDULED row, not a
- * change to activeSubscription itself. See the fulfilled reducer below.
+ * backend rejects any plan with price > 0. If the user has an active
+ * paid plan, the backend SCHEDULES the switch for end-of-period.
  */
 export const switchToFreePlan = createAsyncThunk(
   "billing/switchToFreePlan",
@@ -201,11 +198,6 @@ export const cancelSubscription = createAsyncThunk(
   }
 );
 
-/**
- * Lets a user back out of a pending SCHEDULED downgrade before it takes
- * effect. Their current active plan is unaffected either way — this
- * only cancels the queued-up change, not what's currently active.
- */
 export const cancelScheduledChange = createAsyncThunk(
   "billing/cancelScheduledChange",
   async (_: void, { rejectWithValue }) => {
@@ -225,8 +217,8 @@ const billingSlice = createSlice({
   name: "billing",
   initialState,
   reducers: {
-    clearRazorpayOrder: (state) => {
-      state.razorpayOrder = null;
+    clearPaypalOrder: (state) => {
+      state.paypalOrder = null;
     },
     clearBillingError: (state) => {
       state.error = null;
@@ -257,42 +249,34 @@ const billingSlice = createSlice({
         state.history = action.payload;
       })
 
-      // razorpay order
-      .addCase(createRazorpayOrder.pending, (state) => {
+      // paypal order
+      .addCase(createPaypalOrder.pending, (state) => {
         state.checkoutLoading = true;
       })
-      .addCase(createRazorpayOrder.fulfilled, (state, action) => {
-        state.razorpayOrder = action.payload;
+      .addCase(createPaypalOrder.fulfilled, (state, action) => {
+        state.paypalOrder = action.payload;
         state.checkoutLoading = false;
       })
-      .addCase(createRazorpayOrder.rejected, (state, action) => {
+      .addCase(createPaypalOrder.rejected, (state, action) => {
         state.checkoutLoading = false;
         state.error = action.payload as string;
       })
 
-      // razorpay verify
-      .addCase(verifyRazorpayPayment.fulfilled, (state, action) => {
-        // If this payment was a downgrade, the backend scheduled it
-        // instead of activating it — don't stomp the currently active
-        // subscription with the scheduled row. A fetchActiveSubscription
-        // dispatch right after this (already done in the component)
-        // will pick up both the still-active plan and its scheduledChange.
+      // paypal capture
+      .addCase(capturePaypalOrder.pending, (state) => {
+        state.checkoutLoading = true;
+      })
+      .addCase(capturePaypalOrder.fulfilled, (state, action) => {
+        // A downgrade capture returns the SCHEDULED row, not a change
+        // to the currently-active subscription — don't stomp it here.
+        // The component dispatches fetchActiveSubscription right after.
         if (action.payload.status !== "scheduled") {
           state.activeSubscription = action.payload;
         }
-        state.razorpayOrder = null;
-      })
-
-      // stripe checkout
-      .addCase(createStripeCheckout.pending, (state) => {
-        state.checkoutLoading = true;
-      })
-      .addCase(createStripeCheckout.fulfilled, (state) => {
+        state.paypalOrder = null;
         state.checkoutLoading = false;
-        // Actual redirect (window.location.href = url) happens in the
-        // component right after this thunk resolves.
       })
-      .addCase(createStripeCheckout.rejected, (state, action) => {
+      .addCase(capturePaypalOrder.rejected, (state, action) => {
         state.checkoutLoading = false;
         state.error = action.payload as string;
       })
@@ -302,9 +286,6 @@ const billingSlice = createSlice({
         state.freePlanLoading = true;
       })
       .addCase(switchToFreePlan.fulfilled, (state, action) => {
-        // Same reasoning as verifyRazorpayPayment.fulfilled above: a
-        // scheduled Free switch shouldn't overwrite the still-active
-        // paid subscription in state.
         if (action.payload.status !== "scheduled") {
           state.activeSubscription = action.payload;
         }
@@ -337,5 +318,5 @@ const billingSlice = createSlice({
   },
 });
 
-export const { clearRazorpayOrder, clearBillingError } = billingSlice.actions;
+export const { clearPaypalOrder, clearBillingError } = billingSlice.actions;
 export default billingSlice.reducer;

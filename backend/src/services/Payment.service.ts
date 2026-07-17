@@ -1,109 +1,173 @@
-import Razorpay from "razorpay";
-import Stripe from "stripe";
-import crypto from "crypto";
 import { env } from "@config/env";
 import { ApiError } from "@utils/ApiError";
 
 /**
  * ------------------------------------------------------------------
- * DEVELOPMENT MODE NOTICE
+ * PAYPAL — SANDBOX BY DEFAULT
  * ------------------------------------------------------------------
- * Both gateways below are wired to read TEST/SANDBOX credentials from
- * env vars. Nothing here talks to real money until you swap keys.
- *
- *   Razorpay test keys look like:  rzp_test_xxxxxxxxxxxx
- *   Stripe test keys look like:    sk_test_xxxx / pk_test_xxxx
- *
  * Required env vars (add to your .env / env.ts):
- *   RAZORPAY_KEY_ID
- *   RAZORPAY_KEY_SECRET
- *   STRIPE_SECRET_KEY
- *   STRIPE_PUBLISHABLE_KEY
- *   STRIPE_WEBHOOK_SECRET
- *   FRONTEND_URL   (e.g. http://localhost:5173)
+ *   PAYPAL_CLIENT_ID
+ *   PAYPAL_CLIENT_SECRET
+ *   PAYPAL_MODE            ("sandbox" | "live", defaults to sandbox)
+ *   PAYPAL_WEBHOOK_ID      (from PayPal Developer Dashboard > Webhooks)
+ *   FRONTEND_URL
+ *
+ * NEVER hardcode CLIENT_SECRET anywhere outside env vars / your
+ * secrets manager. It must not be exposed to the frontend.
  * ------------------------------------------------------------------
  */
 
-export const razorpay = new Razorpay({
-  key_id: env.RAZORPAY_KEY_ID as string,
-  key_secret: env.RAZORPAY_KEY_SECRET as string,
-});
+const PAYPAL_BASE_URL =
+  env.PAYPAL_MODE === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
 
-export const stripe = new Stripe(env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2026-06-24.dahlia",
-});
+let cachedToken: { token: string; expiresAt: number } | null = null;
 
-/**
- * Creates a Razorpay order. Amount is expected in the plan's base
- * currency unit (e.g. rupees) — Razorpay requires the smallest unit
- * (paise), so we multiply by 100 here.
- */
-export async function createRazorpayOrder(amount: number, currency: string, receipt: string) {
-  try {
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
-      currency,
-      receipt,
-      notes: { environment: "development" },
-    });
-    return order;
-  } catch (err: any) {
-    throw ApiError.badRequest(err?.error?.description || "Failed to create Razorpay order");
+async function getAccessToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.token;
   }
-}
 
-/**
- * Verifies the HMAC SHA256 signature Razorpay sends back after checkout.
- * This MUST be done server-side — never trust the client's word that a
- * payment succeeded.
- */
-export function verifyRazorpaySignature(orderId: string, paymentId: string, signature: string) {
-  const body = `${orderId}|${paymentId}`;
-  const expected = crypto
-    .createHmac("sha256", env.RAZORPAY_KEY_SECRET as string)
-    .update(body)
-    .digest("hex");
-  return expected === signature;
-}
+  const auth = Buffer.from(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`).toString(
+    "base64"
+  );
 
-/**
- * Creates a Stripe Checkout Session (hosted payment page). Redirect the
- * user's browser to `session.url` to complete payment.
- */
-export async function createStripeCheckoutSession(params: {
-  planName: string;
-  amount: number;
-  currency: string;
-  userId: string;
-  planId: string;
-  successUrl: string;
-  cancelUrl: string;
-}) {
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    payment_method_types: ["card"],
-    line_items: [
-      {
-        price_data: {
-          currency: params.currency.toLowerCase(),
-          product_data: { name: params.planName },
-          unit_amount: Math.round(params.amount * 100),
-        },
-        quantity: 1,
-      },
-    ],
-    metadata: { userId: params.userId, planId: params.planId },
-    success_url: params.successUrl,
-    cancel_url: params.cancelUrl,
+  const res = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
   });
-  return session;
+
+  if (!res.ok) {
+    throw ApiError.internal("Failed to authenticate with PayPal");
+  }
+
+  const data = (await res.json()) as { access_token: string; expires_in: number };
+
+  cachedToken = {
+    token: data.access_token,
+    // refresh a minute early to avoid edge-of-expiry failures
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+  };
+
+  return data.access_token;
 }
 
 /**
- * Verifies + parses an incoming Stripe webhook event. `rawBody` must be
- * the untouched request buffer (see ENV_SETUP.md — the webhook route
- * cannot go through express.json()).
+ * Creates a PayPal order (intent = CAPTURE). Returns the order id the
+ * frontend PayPal Buttons SDK needs to render the approval flow.
  */
-export function constructStripeEvent(rawBody: Buffer, signature: string) {
-  return stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET as string);
+export async function createPaypalOrder(amount: number, currency: string, referenceId: string) {
+  const accessToken = await getAccessToken();
+
+  // PayPal does not support receiving payments in INR. Force USD (or
+  // whatever currency your PayPal business account actually supports)
+  // for the PayPal-facing call regardless of the plan's display currency.
+  const paypalCurrency = currency === "INR" ? "USD" : currency;
+
+  const res = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          reference_id: referenceId,
+          amount: {
+            currency_code: paypalCurrency,
+            value: amount.toFixed(2),
+          },
+        },
+      ],
+      application_context: {
+        brand_name: "Your App",
+        shipping_preference: "NO_SHIPPING",
+        user_action: "PAY_NOW",
+        return_url: `${env.FRONTEND_URL}/dashboard/billing?paypal=success`,
+        cancel_url: `${env.FRONTEND_URL}/dashboard/billing?paypal=cancelled`,
+      },
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    // Log PayPal's actual error body so this doesn't stay a mystery.
+    console.error("PayPal create-order failed:", JSON.stringify(data, null, 2));
+    const detail = (data as any)?.details?.[0]?.issue || (data as any)?.message;
+    throw ApiError.badRequest(detail || "Failed to create PayPal order");
+  }
+
+  return data as { id: string; status: string };
+}
+
+/**
+ * Captures a previously-approved PayPal order. This MUST happen
+ * server-side — never trust the client's word that payment succeeded.
+ */
+export async function capturePaypalOrder(orderId: string) {
+  const accessToken = await getAccessToken();
+
+  const res = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw ApiError.badRequest((data as any)?.message || "Failed to capture PayPal order");
+  }
+
+  return data as {
+    id: string;
+    status: string;
+    purchase_units: Array<{
+      payments: { captures: Array<{ id: string; status: string }> };
+    }>;
+  };
+}
+
+/**
+ * Verifies an incoming PayPal webhook against PayPal's own verification
+ * endpoint. Used by the webhook route as a defense-in-depth backstop
+ * to the client-driven create/capture flow.
+ */
+export async function verifyPaypalWebhookSignature(
+  headers: Record<string, string | string[] | undefined>,
+  body: any
+) {
+  const accessToken = await getAccessToken();
+
+  const res = await fetch(`${PAYPAL_BASE_URL}/v1/notifications/verify-webhook-signature`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      auth_algo: headers["paypal-auth-algo"],
+      cert_url: headers["paypal-cert-url"],
+      transmission_id: headers["paypal-transmission-id"],
+      transmission_sig: headers["paypal-transmission-sig"],
+      transmission_time: headers["paypal-transmission-time"],
+      webhook_id: env.PAYPAL_WEBHOOK_ID,
+      webhook_event: body,
+    }),
+  });
+
+  if (!res.ok) return false;
+
+  const data = (await res.json()) as { verification_status: string };
+  return data.verification_status === "SUCCESS";
 }

@@ -12,7 +12,7 @@ import {
   blacklistAccessToken,
 } from "@services/auth.service";
 import { User } from "@models/User.model";
-
+import { loginOrRegisterWithGoogle } from "@services/googleAuth.service";
 const REFRESH_COOKIE = "refreshToken";
 const ACCESS_COOKIE = "accessToken";
 
@@ -43,12 +43,30 @@ export const register = catchAsync(async (req: Request, res: Response) => {
 
 export const login = catchAsync(async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  const { user, accessToken, refreshToken } = await loginUser(email, password, {
-    userAgent: req.headers["user-agent"],
-    ip: req.ip,
-  });
+
+  const existingUser = await User.findOne({ email });
+
+  if (!existingUser) {
+    throw ApiError.notFound(
+      "Account not found. Please create an account first."
+    );
+  }
+
+  const { user, accessToken, refreshToken } = await loginUser(
+    email,
+    password,
+    {
+      userAgent: req.headers["user-agent"],
+      ip: req.ip,
+    }
+  );
+
   setAuthCookies(res, accessToken, refreshToken);
-  sendSuccess(res, 200, "Login successful", { user, accessToken });
+
+  sendSuccess(res, 200, `Welcome back, ${user.name}!`, {
+    user,
+    accessToken,
+  });
 });
 
 export const refresh = catchAsync(async (req: Request, res: Response) => {
@@ -118,4 +136,18 @@ export const changePassword = catchAsync(async (req: Request, res: Response) => 
   res.clearCookie(ACCESS_COOKIE);
   res.clearCookie(REFRESH_COOKIE);
   sendSuccess(res, 200, "Password changed. Please log in again.");
+});
+export const googleAuth = catchAsync(async (req: Request, res: Response) => {
+  const { credential } = req.body;
+  const { user, accessToken, refreshToken } = await loginOrRegisterWithGoogle(credential, {
+    userAgent: req.headers["user-agent"],
+    ip: req.ip,
+  });
+  setAuthCookies(res, accessToken, refreshToken);
+  sendSuccess(
+    res,
+    200,
+    `Welcome ${user.name}! Signed in successfully with Google.`,
+    { user, accessToken }
+  );
 });

@@ -11,7 +11,7 @@ import {
 import { QRCodeCanvas } from "qrcode.react";
 import {
   ArrowLeft, TrendingUp, MapPin, Clock, Smartphone, Download, Copy,
-  Edit3, ExternalLink, Share2, MousePointerClick,
+  Edit3, ExternalLink, Share2, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,14 @@ import { toast } from "sonner";
 import { useDispatch, useSelector } from "react-redux";
 import { AppDispatch, RootState } from "@/store";
 import { fetchQrById } from "@/store/slices/qrSlice";
-import { fetchQrAnalytics, fetchQrLocations, fetchQrRecentScans, clearQrAnalytics } from "@/store/slices/analyticsSlice";
+import {
+  fetchQrAnalytics,
+  fetchQrLocations,
+  fetchQrRecentScans,
+  fetchQrGeoReport,
+  clearQrAnalytics,
+} from "@/store/slices/analyticsSlice";
+import GeoBreakdown from "@/components/qr/GeoBreakdown";
 
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
@@ -60,9 +67,23 @@ function QRDetailInner() {
   useEffect(() => {
     if (!id) return;
     dispatch(fetchQrById(id));
-    dispatch(fetchQrAnalytics({ id, days: 30 }));
+    const endDate = new Date().toISOString().split("T")[0];
+
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+
+    const startDate = start.toISOString().split("T")[0];
+
+    dispatch(
+      fetchQrAnalytics({
+        id,
+        startDate,
+        endDate,
+      })
+    );
     dispatch(fetchQrLocations({ id, limit: 6 }));
     dispatch(fetchQrRecentScans({ id, limit: 6 }));
+    dispatch(fetchQrGeoReport({ id }));
     return () => {
       dispatch(clearQrAnalytics());
     };
@@ -79,11 +100,13 @@ function QRDetailInner() {
 
     const hourlyTotals = new Array(24).fill(0);
     const deviceTotals: Record<string, number> = {};
+    let uniqueVisitors = 0;
     for (const row of dailyRows) {
       row.hourlyBreakdown.forEach((v, i) => (hourlyTotals[i] += v));
       for (const [device, count] of Object.entries(row.deviceBreakdown)) {
         deviceTotals[device] = (deviceTotals[device] || 0) + count;
       }
+      uniqueVisitors += row.uniqueIps || 0;
     }
     const hourly = hourlyTotals.map((scans, h) => ({ hour: h.toString().padStart(2, "0"), scans }));
 
@@ -98,8 +121,11 @@ function QRDetailInner() {
     const yesterday = trend[trend.length - 2]?.scans ?? 0;
     const today = trend[trend.length - 1]?.scans ?? 0;
     const dod = yesterday > 0 ? Math.round(((today - yesterday) / yesterday) * 100) : 0;
+    const totalScansInRange = trend.reduce((s, r) => s + r.scans, 0);
+    const repeatRate =
+      totalScansInRange > 0 ? Math.max(0, Math.round(((totalScansInRange - uniqueVisitors) / totalScansInRange) * 100)) : 0;
 
-    return { trend, hourly, devices, peakHour, dod };
+    return { trend, hourly, devices, peakHour, dod, uniqueVisitors, repeatRate };
   }, [qr, dailyRows]);
 
   if (qrLoading && !qr) {
@@ -116,11 +142,15 @@ function QRDetailInner() {
   }
 
   const topCity = locations[0];
-  const clickRate = qr.scansTotal > 0 ? Math.round(((qr as any).clicksTotal / qr.scansTotal) * 100) : 0;
 
   const stats = [
     { label: "Total Scans", value: qr.scansTotal.toLocaleString("en-IN"), sub: data ? `${data.dod >= 0 ? "+" : ""}${data.dod}% vs yesterday` : "—", icon: TrendingUp },
-    { label: "Click-through", value: `${(qr as any).clicksTotal?.toLocaleString("en-IN") ?? 0}`, sub: `${clickRate}% of scans clicked`, icon: MousePointerClick },
+    {
+      label: "Unique Visitors",
+      value: data ? data.uniqueVisitors.toLocaleString("en-IN") : "—",
+      sub: data ? `${data.repeatRate}% repeat scans` : "Last 30 days",
+      icon: Users,
+    },
     { label: "Top City", value: topCity?.city || "No data yet", sub: topCity ? `${topCity.pct}% of scans` : "", icon: MapPin },
     { label: "Peak Hour", value: data ? `${data.peakHour.hour}:00` : "—", sub: "Last 30 days", icon: Clock },
   ];
@@ -147,24 +177,23 @@ function QRDetailInner() {
                 {qr.isDynamic && (
                   <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">DYNAMIC</Badge>
                 )}
-                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                  qr.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
-                }`}>
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${qr.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+                  }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${qr.status === "active" ? "bg-success animate-pulse" : "bg-muted-foreground"}`} />
                   {qr.status}
                 </span>
               </div>
               <h1 className="text-2xl md:text-3xl font-bold font-heading text-foreground truncate">{qr.name}</h1>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                <span className="font-mono truncate max-w-md">{qr.destination}</span>
+                <span className="font-mono truncate max-w-md">{qr.shortUrl}</span>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(qr.destination); toast.success("Copied"); }}
+                  onClick={() => { navigator.clipboard.writeText(qr.shortUrl); toast.success("Copied"); }}
                   className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
                 >
                   <Copy className="w-3 h-3" />
                 </button>
                 {qr.type === "url" && (
-                  <a href={qr.destination} target="_blank" rel="noreferrer" className="p-1 rounded hover:bg-secondary">
+                  <a href={qr.shortUrl} target="_blank" rel="noreferrer" className="p-1 rounded hover:bg-secondary">
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
@@ -356,6 +385,9 @@ function QRDetailInner() {
           )}
         </div>
       </div>
+
+      {/* Geography breakdown — country / region / city drill-down */}
+      {id && <GeoBreakdown qrId={id} />}
     </div>
   );
 }

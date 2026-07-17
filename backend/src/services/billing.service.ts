@@ -5,7 +5,7 @@ import { Subscription, SubscriptionStatus } from "@models/Subscription.model";
 import { User } from "@models/User.model";
 import { ApiError } from "@utils/ApiError";
 
-type PaymentGateway = "free" | "razorpay" | "stripe" | "manual";
+type PaymentGateway = "free" | "paypal" | "manual";
 
 // --- Plan tier ranking (server-side mirror of the frontend ladder) -------
 // Used to decide whether a plan change is an upgrade, lateral, or
@@ -174,8 +174,13 @@ export async function switchToFreePlan(userId: string, planId: string) {
 export async function createPendingSubscription(
   userId: string,
   planId: string,
-  gateway: "razorpay" | "stripe",
-  gatewayOrderId?: string
+  gateway: "paypal",
+  gatewayOrderId?: string,
+  // The amount/currency actually charged (post-conversion). Falls back
+  // to the plan's own price/currency if not provided, so this stays
+  // backward compatible with non-converted gateways.
+  chargedAmount?: number,
+  chargedCurrency?: string
 ) {
   const plan = await getPlanById(planId);
 
@@ -188,8 +193,8 @@ export async function createPendingSubscription(
     status: SubscriptionStatus.PENDING,
     startDate,
     endDate,
-    amount: plan.price,
-    currency: plan.currency,
+    amount: chargedAmount ?? plan.price,
+    currency: chargedCurrency ?? plan.currency,
     paymentGateway: gateway,
     gatewayOrderId,
     autoRenew: false,
@@ -278,6 +283,11 @@ export async function getUserBillingHistory(userId: string) {
   return Subscription.find({ user: userId }).populate("plan").sort({ createdAt: -1 }).lean();
 }
 
+function getNextScanResetDate(currentWindowStart: Date | null): Date {
+  const base = currentWindowStart ?? new Date();
+  return new Date(base.getFullYear(), base.getMonth() + 1, 1);
+}
+
 export async function getActiveSubscription(userId: string) {
   // Get active subscription
   const subscription = await Subscription.findOne({
@@ -299,8 +309,12 @@ export async function getActiveSubscription(userId: string) {
     status: QRStatus.ACTIVE,
   });
 
-  // Surface any pending scheduled downgrade so the UI can show it
-  // (e.g. "Switching to Starter on 31 Jul").
+  // Monthly scan usage — same counter scanQuota.service reads/writes
+  // on every public QR redirect hit.
+  const user = await User.findById(userId).select("scansThisMonth scansMonthResetAt").lean();
+  const scansUsed = user?.scansThisMonth ?? 0;
+  const scansResetAt = getNextScanResetDate(user?.scansMonthResetAt ?? null);
+
   const scheduled = await Subscription.findOne({
     user: userId,
     status: SubscriptionStatus.SCHEDULED,
@@ -316,6 +330,8 @@ export async function getActiveSubscription(userId: string) {
       dynamicQrLimit: plan.dynamicQrLimit,
       qrLimit: plan.qrLimit,
       scanLimitPerMonth: plan.scanLimitPerMonth,
+      scansUsed,         
+      scansResetAt,      
     },
     scheduledChange: scheduled
       ? {

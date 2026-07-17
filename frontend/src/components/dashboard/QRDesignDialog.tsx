@@ -12,23 +12,29 @@ interface Props {
   initial: QRDesign;
   qrValue: string;
   qrName: string;
-  onSave: (d: QRDesign) => void;
+  onSave: (d: QRDesign, logoFile?: File | null) => void;
 }
 
 const PRESETS: { name: string; design: Partial<QRDesign> }[] = [
-  { name: "Classic",  design: { fgColor: "#000000", bgColor: "#FFFFFF" } },
-  { name: "Brand",    design: { fgColor: "#000099", bgColor: "#FFFFFF" } },
-  { name: "Lime",     design: { fgColor: "#1a1a2e", bgColor: "#F4FBE0" } },
-  { name: "Slate",    design: { fgColor: "#1a1a2e", bgColor: "#F5F5F5" } },
-  { name: "Sunset",   design: { fgColor: "#dc2626", bgColor: "#FFF7ED" } },
-  { name: "Forest",   design: { fgColor: "#0d5c3a", bgColor: "#F0FDF4" } },
+  { name: "Classic", design: { fgColor: "#000000", bgColor: "#FFFFFF" } },
+  { name: "Brand", design: { fgColor: "#000099", bgColor: "#FFFFFF" } },
+  { name: "Lime", design: { fgColor: "#1a1a2e", bgColor: "#F4FBE0" } },
+  { name: "Slate", design: { fgColor: "#1a1a2e", bgColor: "#F5F5F5" } },
+  { name: "Sunset", design: { fgColor: "#dc2626", bgColor: "#FFF7ED" } },
+  { name: "Forest", design: { fgColor: "#0d5c3a", bgColor: "#F0FDF4" } },
 ];
 
 export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, qrName, onSave }: Props) {
   const [design, setDesign] = useState<QRDesign>(initial);
+  const [logoFile, setLogoFile] = useState<File | null>(null); // NEW: raw file for upload
 
   useEffect(() => { if (open) setDesign(initial); }, [open, initial]);
-
+  useEffect(() => {
+    if (open) {
+      setDesign(initial);
+      setLogoFile(null); // reset on reopen
+    }
+  }, [open, initial]);
   const update = <K extends keyof QRDesign>(k: K, v: QRDesign[K]) => setDesign((d) => ({ ...d, [k]: v }));
 
   return (
@@ -79,11 +85,10 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
                   <button
                     key={s}
                     onClick={() => update("dotStyle", s)}
-                    className={`py-2.5 rounded-lg border text-xs font-medium capitalize transition ${
-                      design.dotStyle === s
-                        ? "bg-primary/5 border-primary text-primary ring-1 ring-primary/20"
-                        : "bg-background border-border text-muted-foreground hover:border-foreground/30"
-                    }`}
+                    className={`py-2.5 rounded-lg border text-xs font-medium capitalize transition ${design.dotStyle === s
+                      ? "bg-primary/5 border-primary text-primary ring-1 ring-primary/20"
+                      : "bg-background border-border text-muted-foreground hover:border-foreground/30"
+                      }`}
                   >
                     {s}
                   </button>
@@ -104,11 +109,10 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
                   <button
                     key={f.id}
                     onClick={() => update("frame", f.id)}
-                    className={`py-2.5 rounded-lg border text-xs font-medium transition ${
-                      design.frame === f.id
-                        ? "bg-primary/5 border-primary text-primary ring-1 ring-primary/20"
-                        : "bg-background border-border text-muted-foreground hover:border-foreground/30"
-                    }`}
+                    className={`py-2.5 rounded-lg border text-xs font-medium transition ${design.frame === f.id
+                      ? "bg-primary/5 border-primary text-primary ring-1 ring-primary/20"
+                      : "bg-background border-border text-muted-foreground hover:border-foreground/30"
+                      }`}
                   >
                     {f.label}
                   </button>
@@ -126,14 +130,16 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
+                    setLogoFile(f); // keep the actual File for upload
                     const r = new FileReader();
-                    r.onload = () => update("logo", r.result as string);
+                    r.onload = () => update("logo", r.result as string); // still fine for preview only
                     r.readAsDataURL(f);
                   }}
                   className="text-xs file:mr-2 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-secondary file:text-foreground file:text-xs file:font-medium hover:file:bg-secondary/70"
                 />
                 {design.logo && (
-                  <Button variant="ghost" size="sm" onClick={() => update("logo", undefined)} className="text-xs h-8">
+                  // Remove button should also clear the pending file
+                  <Button variant="ghost" size="sm" onClick={() => { update("logo", undefined); setLogoFile(null); }}>
                     Remove
                   </Button>
                 )}
@@ -158,7 +164,18 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
                   bgColor={design.bgColor}
                   level="H"
                   includeMargin={false}
-                  imageSettings={design.logo ? { src: design.logo, height: 36, width: 36, excavate: true } : undefined}
+                  imageSettings={
+                    design.logo
+                      ? {
+                        src: design.logo,
+                        height: 36,
+                        width: 36,
+                        excavate: true,
+                        crossOrigin: "anonymous",
+                      }
+                      : undefined
+                  }
+
                 />
               </div>
               {design.frame === "scan-me" && (
@@ -175,7 +192,7 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
 
         <DialogFooter className="px-6 py-3 border-t border-border bg-card">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => { onSave(design); onOpenChange(false); }} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button onClick={() => { onSave(design, logoFile); onOpenChange(false); }} className="bg-primary text-primary-foreground hover:bg-primary/90">
             Save design
           </Button>
         </DialogFooter>

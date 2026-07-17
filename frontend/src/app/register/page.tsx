@@ -10,6 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { registerUser } from "@/store/slices/authSlice";
+import { GoogleAuthButtons } from "@/components/auth/GoogleAuthButtons";
+import { registerSchema, type RegisterFormData } from "@/lib/validations/auth";
+
+type RegisterFieldErrors = Partial<Record<keyof RegisterFormData, string>>;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -21,10 +25,32 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
+  const [errors, setErrors] = useState<RegisterFieldErrors>({});
+
+  const clearError = (field: keyof RegisterFormData) => {
+    setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const resultAction = await dispatch(registerUser({ name, email, phone, password }));
+
+    const result = registerSchema.safeParse({ name, email, phone, password });
+
+    if (!result.success) {
+      const fieldErrors: RegisterFieldErrors = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as keyof RegisterFormData;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
+
+    const resultAction = await dispatch(registerUser(result.data));
     if (registerUser.fulfilled.match(resultAction)) {
       router.push("/dashboard");
     }
@@ -49,7 +75,7 @@ export default function RegisterPage() {
           <h1 className="text-3xl md:text-4xl font-bold font-heading text-foreground">Create account</h1>
           <p className="mt-2 text-muted-foreground text-sm">Sign up to start creating dynamic QR codes.</p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm font-medium">Full Name</Label>
               <Input
@@ -57,10 +83,21 @@ export default function RegisterPage() {
                 type="text"
                 placeholder="Rahul Sharma"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className="h-11 bg-card border-border"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  clearError("name");
+                }}
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? "name-error" : undefined}
+                className={`h-11 bg-card border-border ${
+                  errors.name ? "border-destructive focus-visible:ring-destructive" : ""
+                }`}
               />
+              {errors.name && (
+                <p id="name-error" className="text-xs text-destructive mt-1">
+                  {errors.name}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -70,10 +107,21 @@ export default function RegisterPage() {
                 type="email"
                 placeholder="you@business.in"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-11 bg-card border-border"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearError("email");
+                }}
+                aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? "email-error" : undefined}
+                className={`h-11 bg-card border-border ${
+                  errors.email ? "border-destructive focus-visible:ring-destructive" : ""
+                }`}
               />
+              {errors.email && (
+                <p id="email-error" className="text-xs text-destructive mt-1">
+                  {errors.email}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -83,9 +131,21 @@ export default function RegisterPage() {
                 type="tel"
                 placeholder="+91 98765 43210"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="h-11 bg-card border-border"
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  clearError("phone");
+                }}
+                aria-invalid={!!errors.phone}
+                aria-describedby={errors.phone ? "phone-error" : undefined}
+                className={`h-11 bg-card border-border ${
+                  errors.phone ? "border-destructive focus-visible:ring-destructive" : ""
+                }`}
               />
+              {errors.phone && (
+                <p id="phone-error" className="text-xs text-destructive mt-1">
+                  {errors.phone}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -96,10 +156,15 @@ export default function RegisterPage() {
                   type={show ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  className="h-11 bg-card border-border pr-10"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearError("password");
+                  }}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  className={`h-11 bg-card border-border pr-10 ${
+                    errors.password ? "border-destructive focus-visible:ring-destructive" : ""
+                  }`}
                 />
                 <button
                   type="button"
@@ -109,7 +174,15 @@ export default function RegisterPage() {
                   {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-[10px] text-muted-foreground pt-1">Must be at least 8 characters long.</p>
+              {errors.password ? (
+                <p id="password-error" className="text-xs text-destructive pt-1">
+                  {errors.password}
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground pt-1">
+                  Must be 8+ characters with uppercase, lowercase, number, and special character.
+                </p>
+              )}
             </div>
 
             <Button
@@ -120,7 +193,16 @@ export default function RegisterPage() {
               {authLoading ? "Creating account…" : <>Sign up <ArrowRight className="w-4 h-4 ml-1.5" /></>}
             </Button>
           </form>
+          <div className="mt-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">Or continue with</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
 
+          <div className="mt-4">
+            <GoogleAuthButtons mode="signup"/>
+          </div>
+          
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link href="/login" className="text-primary font-semibold hover:underline">

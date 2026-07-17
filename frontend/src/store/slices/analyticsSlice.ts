@@ -33,6 +33,43 @@ export interface RecentScanRow {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Geo report types (country / region / city drill-down)              */
+/* ------------------------------------------------------------------ */
+
+export interface GeoCountry {
+  country: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoRegion {
+  country: string;
+  region: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoCity {
+  country: string;
+  region: string | null;
+  city: string;
+  scans: number;
+  pct: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface GeoReport {
+  countries: GeoCountry[];
+  regions: GeoRegion[];
+  cities: GeoCity[];
+}
+
+/* ------------------------------------------------------------------ */
 /*  Account-wide types                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -53,6 +90,16 @@ export interface HourlyPoint {
   scans: number;
 }
 
+// Matches analyticsService.getTopQRs()
+export interface TopQr {
+  id: string;
+  name: string;
+  type: string;
+  destination: string;
+  scansToday: number;
+  scans: number; // scansTotal
+}
+
 export interface DateRangeParams {
   startDate?: string; // "yyyy-MM-dd" — omit for current month
   endDate?: string;   // "yyyy-MM-dd" — omit for current month
@@ -65,7 +112,12 @@ interface AnalyticsState {
   devices: Record<string, number>;
   accountLocations: QrLocationRow[];
   hourly: HourlyPoint[];
+  topQrs: TopQr[];
+
   summaryLoading: boolean;
+  trendLoading: boolean;
+  devicesLoading: boolean;
+  topQrsLoading: boolean;
 
   // per-QR
   qrId: string | null;
@@ -74,6 +126,10 @@ interface AnalyticsState {
   recentScans: RecentScanRow[];
   qrScansToday: number;
   loading: boolean;
+
+  // per-QR geo report
+  geoReport: GeoReport | null;
+  geoLoading: boolean;
 
   error: string | null;
 }
@@ -84,7 +140,12 @@ const initialState: AnalyticsState = {
   devices: {},
   accountLocations: [],
   hourly: [],
+  topQrs: [],
+
   summaryLoading: false,
+  trendLoading: false,
+  devicesLoading: false,
+  topQrsLoading: false,
 
   qrId: null,
   dailyRows: [],
@@ -93,17 +154,25 @@ const initialState: AnalyticsState = {
   qrScansToday: 0,
   loading: false,
 
+  geoReport: null,
+  geoLoading: false,
+
   error: null,
 };
 
 /* ------------------------------------------------------------------ */
-/*  Account-wide thunks — now take startDate/endDate, default to the   */
-/*  current month on the backend when omitted.                         */
+/*  Account-wide thunks — take startDate/endDate, default to the       */
+/*  current month on the backend when omitted. The generics below are  */
+/*  spelled out explicitly (`<Return, Args | void>`) so the resulting   */
+/*  action creators can be called with zero arguments — a runtime      */
+/*  default on the payload-creator's parameter alone doesn't make       */
+/*  createAsyncThunk's inferred ThunkArg optional.                     */
 /* ------------------------------------------------------------------ */
 
-export const fetchSummary = createAsyncThunk(
+export const fetchSummary = createAsyncThunk<DashboardSummary, DateRangeParams | void>(
   "analytics/fetchSummary",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/summary", { params: { startDate, endDate } });
       return res.data.data as DashboardSummary;
@@ -113,9 +182,10 @@ export const fetchSummary = createAsyncThunk(
   }
 );
 
-export const fetchTrend = createAsyncThunk(
+export const fetchTrend = createAsyncThunk<TrendPoint[], DateRangeParams | void>(
   "analytics/fetchTrend",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/trend", { params: { startDate, endDate } });
       return res.data.data as TrendPoint[];
@@ -125,9 +195,10 @@ export const fetchTrend = createAsyncThunk(
   }
 );
 
-export const fetchDevices = createAsyncThunk(
+export const fetchDevices = createAsyncThunk<Record<string, number>, DateRangeParams | void>(
   "analytics/fetchDevices",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/devices", { params: { startDate, endDate } });
       return res.data.data as Record<string, number>;
@@ -137,9 +208,10 @@ export const fetchDevices = createAsyncThunk(
   }
 );
 
-export const fetchAccountLocations = createAsyncThunk(
+export const fetchAccountLocations = createAsyncThunk<QrLocationRow[], { limit?: number } | void>(
   "analytics/fetchAccountLocations",
-  async ({ limit = 10 }: { limit?: number } = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { limit = 10 } = params ?? {};
     try {
       const res = await api.get("/analytics/locations", { params: { limit } });
       return res.data.data as QrLocationRow[];
@@ -149,9 +221,10 @@ export const fetchAccountLocations = createAsyncThunk(
   }
 );
 
-export const fetchHourly = createAsyncThunk(
+export const fetchHourly = createAsyncThunk<HourlyPoint[], DateRangeParams | void>(
   "analytics/fetchHourly",
-  async ({ startDate, endDate }: DateRangeParams = {}, { rejectWithValue }) => {
+  async (params, { rejectWithValue }) => {
+    const { startDate, endDate } = params ?? {};
     try {
       const res = await api.get("/analytics/hourly", { params: { startDate, endDate } });
       return res.data.data as HourlyPoint[];
@@ -161,9 +234,24 @@ export const fetchHourly = createAsyncThunk(
   }
 );
 
+// Powers the "Top performing QRs today" card on the overview page
+export const fetchTopQrs = createAsyncThunk<TopQr[], { limit?: number } | void>(
+  "analytics/fetchTopQrs",
+  async (params, { rejectWithValue }) => {
+    const { limit = 4 } = params ?? {};
+    try {
+      const res = await api.get("/analytics/top-qrs", { params: { limit } });
+      return res.data.data as TopQr[];
+    } catch (err: any) {
+      return rejectWithValue(err.response?.data?.message || "Failed to load top QR codes");
+    }
+  }
+);
+
 /* ------------------------------------------------------------------ */
-/*  Per-QR thunks — fetchQrAnalytics now takes startDate/endDate;       */
+/*  Per-QR thunks — fetchQrAnalytics takes startDate/endDate;           */
 /*  fetchQrLocations / fetchQrRecentScans unchanged (limit-based).      */
+/*  These all require an `id`, so they keep a required-argument shape.  */
 /* ------------------------------------------------------------------ */
 
 export const fetchQrAnalytics = createAsyncThunk(
@@ -217,6 +305,19 @@ export const fetchQrRecentScans = createAsyncThunk(
   }
 );
 
+// Country / region / city drill-down for a single QR
+export const fetchQrGeoReport = createAsyncThunk(
+  "analytics/fetchQrGeoReport",
+  async ({ id }: { id: string }, { rejectWithValue }) => {
+    try {
+      const res = await api.get(`/analytics/qr/${id}/geo`);
+      return res.data.data as GeoReport;
+    } catch (err: any) {
+      return rejectWithValue(err.response?.data?.message || "Failed to load geo report");
+    }
+  }
+);
+
 /* ------------------------------------------------------------------ */
 /*  Slice                                                               */
 /* ------------------------------------------------------------------ */
@@ -231,6 +332,8 @@ const analyticsSlice = createSlice({
       state.locations = [];
       state.recentScans = [];
       state.qrScansToday = 0;
+      state.geoReport = null;
+      state.geoLoading = false;
       state.error = null;
     },
     clearAccountAnalytics: (state) => {
@@ -239,6 +342,7 @@ const analyticsSlice = createSlice({
       state.devices = {};
       state.accountLocations = [];
       state.hourly = [];
+      state.topQrs = [];
       state.error = null;
     },
   },
@@ -257,17 +361,44 @@ const analyticsSlice = createSlice({
         state.summaryLoading = false;
         state.error = action.payload as string;
       })
+      .addCase(fetchTrend.pending, (state) => {
+        state.trendLoading = true;
+      })
       .addCase(fetchTrend.fulfilled, (state, action) => {
         state.trend = action.payload;
+        state.trendLoading = false;
+      })
+      .addCase(fetchTrend.rejected, (state, action) => {
+        state.trendLoading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchDevices.pending, (state) => {
+        state.devicesLoading = true;
       })
       .addCase(fetchDevices.fulfilled, (state, action) => {
         state.devices = action.payload;
+        state.devicesLoading = false;
+      })
+      .addCase(fetchDevices.rejected, (state, action) => {
+        state.devicesLoading = false;
+        state.error = action.payload as string;
       })
       .addCase(fetchAccountLocations.fulfilled, (state, action) => {
         state.accountLocations = action.payload;
       })
       .addCase(fetchHourly.fulfilled, (state, action) => {
         state.hourly = action.payload;
+      })
+      .addCase(fetchTopQrs.pending, (state) => {
+        state.topQrsLoading = true;
+      })
+      .addCase(fetchTopQrs.fulfilled, (state, action) => {
+        state.topQrs = action.payload;
+        state.topQrsLoading = false;
+      })
+      .addCase(fetchTopQrs.rejected, (state, action) => {
+        state.topQrsLoading = false;
+        state.error = action.payload as string;
       })
 
       // Per-QR
@@ -292,6 +423,19 @@ const analyticsSlice = createSlice({
       })
       .addCase(fetchQrScansToday.fulfilled, (state, action) => {
         state.qrScansToday = action.payload.scansToday;
+      })
+
+      // Per-QR geo report
+      .addCase(fetchQrGeoReport.pending, (state) => {
+        state.geoLoading = true;
+      })
+      .addCase(fetchQrGeoReport.fulfilled, (state, action) => {
+        state.geoReport = action.payload;
+        state.geoLoading = false;
+      })
+      .addCase(fetchQrGeoReport.rejected, (state, action) => {
+        state.geoLoading = false;
+        state.error = action.payload as string;
       });
   },
 });

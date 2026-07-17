@@ -308,3 +308,128 @@ export async function getRecentScans(ownerId: string, qrId: string, limit = 8) {
     scannedAt: r.scannedAt,
   }));
 }
+
+// OVERVIEW PERDAY DATA 
+
+export async function getTopQRs(ownerId: string, limit = 4) {
+  const ownerObjectId = new Types.ObjectId(ownerId);
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
+
+  // Live count of today's scans per QR — same reasoning as getDashboardSummary:
+  // don't trust the denormalized scansToday field on QRCode.
+  const rows = await Scan.aggregate([
+    { $match: { owner: ownerObjectId, scannedAt: { $gte: todayStart, $lte: todayEnd } } },
+    { $group: { _id: "$qrCode", scansToday: { $sum: 1 } } },
+    { $sort: { scansToday: -1 } },
+    { $limit: limit },
+  ]);
+
+  const qrIds = rows.map((r) => r._id);
+  const qrDocs = await QRCode.find({ _id: { $in: qrIds }, owner: ownerObjectId })
+    .select("name type destination scansTotal")
+    .lean();
+
+  const qrMap = new Map(qrDocs.map((q) => [q._id.toString(), q]));
+
+  return rows
+    .map((r) => {
+      const qr = qrMap.get(r._id.toString());
+      if (!qr) return null;
+      return {
+        id: r._id.toString(),
+        name: qr.name,
+        type: qr.type,
+        destination: qr.destination,
+        scansToday: r.scansToday,
+        scans: qr.scansTotal,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+}
+/**
+ * Full geo report for a single QR — country, region, and city level,
+ * each with scan counts, percentage of total, and avg lat/lng for mapping.
+ * Region breakdown is grouped per-country so the UI can drill down
+ * Country -> Region -> City without extra round trips.
+ */
+export async function getQrGeoReport(ownerId: string, qrId: string) {
+  const ownerObjectId = new Types.ObjectId(ownerId);
+  const qrObjectId = new Types.ObjectId(qrId);
+
+  const baseMatch = {
+    owner: ownerObjectId,
+    qrCode: qrObjectId,
+    country: { $exists: true, $ne: null },
+  };
+
+  const [countryRows, regionRows, cityRows] = await Promise.all([
+    Scan.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id: "$country",
+          scans: { $sum: 1 },
+          avgLat: { $avg: "$lat" },
+          avgLng: { $avg: "$lng" },
+        },
+      },
+      { $sort: { scans: -1 } },
+    ]),
+    Scan.aggregate([
+      { $match: { ...baseMatch, region: { $exists: true, $ne: null } } },
+      {
+        $group: {
+          _id: { country: "$country", region: "$region" },
+          scans: { $sum: 1 },
+          avgLat: { $avg: "$lat" },
+          avgLng: { $avg: "$lng" },
+        },
+      },
+      { $sort: { scans: -1 } },
+    ]),
+    Scan.aggregate([
+      { $match: { ...baseMatch, city: { $exists: true, $ne: null } } },
+      {
+        $group: {
+          _id: { country: "$country", region: "$region", city: "$city" },
+          scans: { $sum: 1 },
+          avgLat: { $avg: "$lat" },
+          avgLng: { $avg: "$lng" },
+        },
+      },
+      { $sort: { scans: -1 } },
+    ]),
+  ]);
+
+  const countryTotal = countryRows.reduce((s, r) => s + r.scans, 0) || 1;
+  const regionTotal = regionRows.reduce((s, r) => s + r.scans, 0) || 1;
+  const cityTotal = cityRows.reduce((s, r) => s + r.scans, 0) || 1;
+
+  return {
+    countries: countryRows.map((r) => ({
+      country: r._id as string,
+      scans: r.scans,
+      pct: Math.round((r.scans / countryTotal) * 100),
+      lat: r.avgLat ?? null,
+      lng: r.avgLng ?? null,
+    })),
+    regions: regionRows.map((r) => ({
+      country: r._id.country as string,
+      region: r._id.region as string,
+      scans: r.scans,
+      pct: Math.round((r.scans / regionTotal) * 100),
+      lat: r.avgLat ?? null,
+      lng: r.avgLng ?? null,
+    })),
+    cities: cityRows.map((r) => ({
+      country: r._id.country as string,
+      region: (r._id.region as string) || null,
+      city: r._id.city as string,
+      scans: r.scans,
+      pct: Math.round((r.scans / cityTotal) * 100),
+      lat: r.avgLat ?? null,
+      lng: r.avgLng ?? null,
+    })),
+  };
+}

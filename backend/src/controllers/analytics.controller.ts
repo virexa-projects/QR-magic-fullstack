@@ -68,3 +68,22 @@ export const qrRecentScans = catchAsync(async (req: Request, res: Response) => {
   const data = await analyticsService.getRecentScans(req.user.id, req.params.id, limit);
   sendSuccess(res, 200, "Recent scans fetched", data);
 });
+export const topQrs = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw ApiError.unauthorized();
+  }
+
+  const limit = parseInt((req.query.limit as string) || "4", 10);
+
+  const data = await analyticsService.getTopQRs(
+    req.user.id,
+    limit
+  );
+
+  sendSuccess(res, 200, "Top QR codes fetched", data);
+});
+export const qrGeoReport = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const data = await analyticsService.getQrGeoReport(req.user.id, req.params.id);
+  sendSuccess(res, 200, "QR geo report fetched", data);
+});

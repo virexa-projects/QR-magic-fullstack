@@ -13,7 +13,7 @@ import {
   Link as LinkIcon, MessageSquare, Wifi, User, Mail, Phone, MessageCircle, FileText,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import WorldMap from "@/components/dashboard/WorldMap";
+
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { AppDispatch, RootState } from "@/store";
 import { fetchQrCodes, QrType } from "@/store/slices/qrSlice";
@@ -21,6 +21,7 @@ import {
   fetchSummary, fetchTrend, fetchDevices, fetchAccountLocations, fetchHourly,
   fetchQrAnalytics, fetchQrLocations, fetchQrRecentScans, fetchQrScansToday, clearQrAnalytics,
 } from "@/store/slices/analyticsSlice";
+import WorldMapCity from "../dashboard/WorldMapCity";
 
 /* ------------------------------------------------------------------ */
 /*  Type icon map — matches the real QrType union, not the old mock's  */
@@ -345,7 +346,7 @@ function AnalyticsInner() {
           {cities.length === 0 ? (
             <p className="text-xs text-muted-foreground py-16 text-center">No location data yet.</p>
           ) : (
-            <WorldMap data={cities} />
+            <WorldMapCity data={cities} />
           )}
         </div>
 

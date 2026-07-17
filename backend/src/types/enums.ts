@@ -10,6 +10,7 @@ export enum QRType {
   WHATSAPP = "whatsapp",
   WIFI = "wifi",
   VCARD = "vcard",
+  UPI = "upi",
   EMAIL = "email",
   PHONE = "phone",
   SMS = "sms",

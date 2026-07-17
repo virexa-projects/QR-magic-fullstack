@@ -44,22 +44,47 @@ function processQueue(error: unknown, token: string | null) {
 apiClient.interceptors.response.use(
   (res: AxiosResponse) => res,
   async (error: AxiosError) => {
-    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const original = error.config as InternalAxiosRequestConfig & {
+      _retry?: boolean;
+    };
 
-    // Prevent retry loops on login and refresh endpoints
+    const requestUrl = original?.url || "";
+    const status = error.response?.status;
+
+    // Ignore unauthenticated startup requests
     if (
-      error.response?.status === 401 && 
+      status === 401 &&
+      (
+        requestUrl.includes("/auth/me") ||
+        requestUrl.includes("/auth/refresh")
+      )
+    ) {
+      setAccessToken(null);
+      return Promise.reject(error);
+    }
+
+    // Ignore auth endpoints
+    const isAuthEndpoint =
+      requestUrl.includes("/auth/login") ||
+      requestUrl.includes("/auth/register") ||
+      requestUrl.includes("/auth/google") ||
+      requestUrl.includes("/auth/refresh");
+
+    // Try refresh only for protected APIs
+    if (
+      status === 401 &&
       !original._retry &&
-      original.url !== "/auth/login" &&
-      original.url !== "/auth/refresh"
+      !isAuthEndpoint
     ) {
       original._retry = true;
 
       if (isRefreshing) {
-        return new Promise((resolve, reject) => {
+        return new Promise<string>((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
+          if (original.headers) {
+            original.headers.Authorization = `Bearer ${token}`;
+          }
           return apiClient(original);
         });
       }
@@ -73,30 +98,30 @@ apiClient.interceptors.response.use(
           {},
           { withCredentials: true }
         );
-        
+
         const newToken: string = data.data.accessToken;
         setAccessToken(newToken);
         processQueue(null, newToken);
-        
+
         if (original.headers) {
           original.headers.Authorization = `Bearer ${newToken}`;
         }
-        
+
         return apiClient(original);
       } catch (refreshError) {
         processQueue(refreshError, null);
         setAccessToken(null);
-        
+
         // Prevent infinite redirect loops if we are already on public auth pages
         if (
-          typeof window !== "undefined" && 
-          !window.location.pathname.startsWith("/login") && 
+          typeof window !== "undefined" &&
+          !window.location.pathname.startsWith("/login") &&
           !window.location.pathname.startsWith("/register") &&
           window.location.pathname !== "/"
         ) {
           window.location.href = "/login?sessionExpired=true";
         }
-        
+
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

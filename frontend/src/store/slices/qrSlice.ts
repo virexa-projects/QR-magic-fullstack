@@ -159,16 +159,35 @@ export const createQr = createAsyncThunk(
   }
 );
 
-/** Update an existing QR code */
+/**
+ * Update an existing QR code.
+ *
+ * `data` accepts either:
+ *  - a plain partial-update object (e.g. { status: "paused" }, or
+ *    { destination, content }, or { design }) — sent as JSON, or
+ *  - a FormData instance (used only when uploading a new logo file
+ *    alongside design changes) — sent as multipart/form-data.
+ */
 export const updateQr = createAsyncThunk(
   "qr/update",
-  async ({ id, data }: { id: string; data: Record<string, any> }, { rejectWithValue }) => {
+  async (
+    { id, data }: { id: string; data: FormData | Record<string, any> },
+    { rejectWithValue }
+  ) => {
     try {
-      const res = await api.patch(`/qr/${id}`, data);
-      // Backend returns: { success, message, data: {...updated qr} }
-      return { data: res.data.data as QrCode, toastMessage: res.data.message as string };
+      const isFormData = data instanceof FormData;
+      const res = await api.patch(`/qr/${id}`, data, {
+        headers: isFormData ? { "Content-Type": "multipart/form-data" } : undefined,
+      });
+
+      return {
+        data: res.data.data as QrCode,
+        toastMessage: res.data.message as string,
+      };
     } catch (err: any) {
-      return rejectWithValue(err.response?.data?.message || "Failed to update QR code");
+      return rejectWithValue(
+        err.response?.data?.message || "Failed to update QR code"
+      );
     }
   }
 );
