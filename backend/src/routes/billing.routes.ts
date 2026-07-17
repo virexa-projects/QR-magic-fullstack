@@ -3,10 +3,9 @@ import { authenticate } from "@middlewares/auth.middleware";
 import { validate } from "@middlewares/validate.middleware";
 import { createSubscriptionSchema } from "@validators/analytics.validator";
 import {
-  razorpayOrderSchema,
-  razorpayVerifySchema,
-  stripeCheckoutSchema,
-  subscribeFreeSchema, // add this export alongside the others in Payment.validator.ts
+  paypalOrderSchema,
+  paypalCaptureSchema,
+  subscribeFreeSchema,
 } from "@validators/Payment.validator";
 import * as billingController from "@controllers/billing.controller";
 
@@ -14,13 +13,14 @@ const router = Router();
 
 router.get("/plans", billingController.plans);
 
-// Stripe calls this directly (no user session, no JSON-parsed body).
-// See ENV_SETUP.md — app.ts must mount express.raw() for this exact
-// path BEFORE the global express.json() middleware.
-router.post("/stripe/webhook", billingController.stripeWebhook);
+// PayPal calls this directly (no user session). Needs the raw body if
+// you turn on webhook-signature verification against the raw payload —
+// see ENV_SETUP.md for the express.json({ verify }) note.
+router.post("/paypal/webhook", billingController.paypalWebhook);
 
 router.use(authenticate);
-
+router.get("/paypal/quote/:planId", billingController.getPaypalQuote);
+router.post("/paypal/create-order", validate(paypalOrderSchema), billingController.createPaypalOrder);
 router.post("/subscribe", validate(createSubscriptionSchema), billingController.subscribe);
 router.post("/subscribe-free", validate(subscribeFreeSchema), billingController.subscribeFree);
 router.get("/history", billingController.history);
@@ -33,19 +33,14 @@ router.post("/cancel/:id", billingController.cancel);
 router.post("/scheduled/cancel", billingController.cancelScheduledChange);
 
 router.post(
-  "/razorpay/create-order",
-  validate(razorpayOrderSchema),
-  billingController.createRazorpayOrder
+  "/paypal/create-order",
+  validate(paypalOrderSchema),
+  billingController.createPaypalOrder
 );
 router.post(
-  "/razorpay/verify",
-  validate(razorpayVerifySchema),
-  billingController.verifyRazorpayPayment
-);
-router.post(
-  "/stripe/create-checkout-session",
-  validate(stripeCheckoutSchema),
-  billingController.createStripeCheckout
+  "/paypal/capture",
+  validate(paypalCaptureSchema),
+  billingController.capturePaypalOrder
 );
 
 export default router;

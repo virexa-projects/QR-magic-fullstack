@@ -17,14 +17,16 @@ export async function connectDatabase(): Promise<void> {
     logger.warn("MongoDB disconnected. Attempting reconnect...");
   });
 
-  await mongoose.connect(env.MONGO_URI, {
-    // Tuned for 1000+ concurrent users across clustered instances
+ await mongoose.connect(
+  env.MONGO_URI || "mongodb://mongodb:27017/qrbharat",
+  {
     maxPoolSize: env.MONGO_POOL_SIZE,
     minPoolSize: 5,
     socketTimeoutMS: 45000,
     serverSelectionTimeoutMS: 10000,
     family: 4,
-  });
+  }
+);
 }
 
 export async function disconnectDatabase(): Promise<void> {

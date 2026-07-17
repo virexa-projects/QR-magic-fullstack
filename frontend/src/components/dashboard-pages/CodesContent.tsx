@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
+import { Slot } from "@radix-ui/react-slot";
 import { AppDispatch, RootState } from "@/store";
 import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -257,10 +258,18 @@ function CodesInner() {
     }
   };
 
-  const saveDesign = async (d: QrDesign) => {
+  const saveDesign = async (d: QrDesign, logoFile?: File | null) => {
     if (!designing) return;
     try {
-      await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
+      if (logoFile) {
+        const fd = new FormData();
+        fd.append("logo", logoFile); // binary, matches uploadLogo.single("logo")
+        // other design fields must go as strings/JSON — multer won't parse nested objects
+        fd.append("design", JSON.stringify({ ...d, logo: undefined })); // let backend fill logo URL
+        await dispatch(updateQr({ id: designing._id, data: fd })).unwrap();
+      } else {
+        await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
+      }
       setDesigning(null);
     } catch {
       // updateQr thunk already toasts the error
@@ -393,12 +402,22 @@ function CodesInner() {
                   >
                     <td className="px-5 py-3" onClick={stop}>
                       <DownloadPopover
-                        value={q.destination}
+                        value={q.shortUrl}
                         design={design}
                         filename={q.name}
                         trigger={
                           <button title="Click to download" className="block p-1.5 rounded-lg border border-border bg-white hover:border-primary/50 hover:shadow-sm transition">
-                            <QRCodeCanvas value={q.destination} size={48} fgColor={design.fgColor} bgColor={design.bgColor} level="M" includeMargin={false} />
+                            <QRCodeCanvas value={q.shortUrl} size={48} fgColor={design.fgColor} bgColor={design.bgColor} level="M" includeMargin={false} imageSettings={
+                              design.logo
+                                ? {
+                                  src: design.logo,
+                                  height: 36,
+                                  width: 36,
+                                  excavate: true,
+                                  crossOrigin: "anonymous",
+                                }
+                                : undefined
+                            } />
                           </button>
                         }
                       />
@@ -575,20 +594,30 @@ function CodesInner() {
   );
 }
 
-function IconBtn({ children, onClick, title, accent, danger }: { children: React.ReactNode; onClick: () => void; title: string; accent?: boolean; danger?: boolean }) {
+interface IconBtnProps {
+  children: React.ReactNode;
+  title: string;
+  accent?: boolean;
+  danger?: boolean;
+  /** When true, renders the single child element directly (e.g. a Next.js <Link>)
+   *  instead of wrapping it in a <button>, so onClick becomes optional. */
+  asChild?: boolean;
+  onClick?: () => void;
+}
+
+function IconBtn({ children, onClick, title, accent, danger, asChild }: IconBtnProps) {
+  const Comp = asChild ? Slot : "button";
+  const className = `p-2 rounded-lg transition ${danger
+    ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+    : accent
+      ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
+      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+    }`;
+
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`p-2 rounded-lg transition ${danger
-        ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-        : accent
-          ? "text-muted-foreground hover:bg-primary-soft hover:text-primary"
-          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-        }`}
-    >
+    <Comp onClick={onClick} title={title} className={className}>
       {children}
-    </button>
+    </Comp>
   );
 }
 

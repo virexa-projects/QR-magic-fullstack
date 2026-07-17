@@ -1,7 +1,6 @@
 // qrSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { api } from "@/lib/api";
-import { toast } from "sonner";
 
 // --- Types ---
 export type QrType =
@@ -93,30 +92,24 @@ const initialState: QrState = {
 };
 
 // --- Async Thunks ---
+
+/** Fetch a QR by its public short code (used on the anonymous preview page) */
 export const fetchQrByShortCode = createAsyncThunk(
   "qr/fetchByShortCode",
   async (shortCode: string, { rejectWithValue }) => {
     if (!shortCode) {
       return rejectWithValue("No short code provided");
     }
-
     try {
       const res = await api.get(`/qr/short/${shortCode}`);
-
-      // Backend returns:
-      // { qr: {...}, shortUrl: "..." }
-
-      return res.data.data as {
-        qr: QrCode;
-        shortUrl: string;
-      };
+      // Backend returns: { qr: {...}, shortUrl: "..." }
+      return res.data.data as { qr: QrCode; shortUrl: string };
     } catch (err: any) {
-      return rejectWithValue(
-        err.response?.data?.message || "Failed to load QR"
-      );
+      return rejectWithValue(err.response?.data?.message || "Failed to load QR");
     }
   }
 );
+
 /** Fetch paginated and filtered list of QR codes */
 export const fetchQrCodes = createAsyncThunk(
   "qr/fetchList",
@@ -148,35 +141,53 @@ export const fetchQrById = createAsyncThunk(
   }
 );
 
-/** Create a new QR code (Respects plan limits/quota) */
+/**
+ * Create a new QR code (respects plan limits/quota).
+ * Payload shape: { data: QrCode, toastMessage: string } — the middleware
+ * toasts `toastMessage`; the reducer below unwraps `.data` into state.
+ */
 export const createQr = createAsyncThunk(
   "qr/create",
   async (payload: Record<string, any>, { rejectWithValue }) => {
     try {
       const res = await api.post("/qr", payload);
-      toast.success("QR code created successfully!");
-      // Backend returns: { qr, shortUrl, imageDataUrl }
-      return res.data.data.qr as QrCode;
+      // Backend returns: { success, message, data: { qr, shortUrl, imageDataUrl } }
+      return { data: res.data.data.qr as QrCode, toastMessage: res.data.message as string };
     } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to create QR code";
-      toast.error(message);
-      return rejectWithValue(message);
+      return rejectWithValue(err.response?.data?.message || "Failed to create QR code");
     }
   }
 );
 
-/** Update an existing QR code */
+/**
+ * Update an existing QR code.
+ *
+ * `data` accepts either:
+ *  - a plain partial-update object (e.g. { status: "paused" }, or
+ *    { destination, content }, or { design }) — sent as JSON, or
+ *  - a FormData instance (used only when uploading a new logo file
+ *    alongside design changes) — sent as multipart/form-data.
+ */
 export const updateQr = createAsyncThunk(
   "qr/update",
-  async ({ id, data }: { id: string; data: Record<string, any> }, { rejectWithValue }) => {
+  async (
+    { id, data }: { id: string; data: FormData | Record<string, any> },
+    { rejectWithValue }
+  ) => {
     try {
-      const res = await api.patch(`/qr/${id}`, data);
-      toast.success("QR code updated successfully!");
-      return res.data.data as QrCode;
+      const isFormData = data instanceof FormData;
+      const res = await api.patch(`/qr/${id}`, data, {
+        headers: isFormData ? { "Content-Type": "multipart/form-data" } : undefined,
+      });
+
+      return {
+        data: res.data.data as QrCode,
+        toastMessage: res.data.message as string,
+      };
     } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to update QR code";
-      toast.error(message);
-      return rejectWithValue(message);
+      return rejectWithValue(
+        err.response?.data?.message || "Failed to update QR code"
+      );
     }
   }
 );
@@ -186,13 +197,11 @@ export const deleteQr = createAsyncThunk(
   "qr/delete",
   async (id: string, { rejectWithValue }) => {
     try {
-      await api.delete(`/qr/${id}`);
-      toast.success("QR code deleted successfully");
-      return id;
+      const res = await api.delete(`/qr/${id}`);
+      // Backend returns: { success, message } — no data payload needed, just the id we deleted
+      return { data: id, toastMessage: res.data.message as string };
     } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to delete QR code";
-      toast.error(message);
-      return rejectWithValue(message);
+      return rejectWithValue(err.response?.data?.message || "Failed to delete QR code");
     }
   }
 );
@@ -218,18 +227,17 @@ const qrSlice = createSlice({
         state.error = null;
         state.currentShortQr = null;
       })
-
       .addCase(fetchQrByShortCode.fulfilled, (state, action) => {
         state.loading = false;
         state.currentShortQr = action.payload.qr;
         state.shortUrl = action.payload.shortUrl;
       })
-
       .addCase(fetchQrByShortCode.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
         state.currentShortQr = null;
       })
+
       // Fetch List
       .addCase(fetchQrCodes.pending, (state) => {
         state.loading = true;
@@ -264,50 +272,58 @@ const qrSlice = createSlice({
         state.currentQr = null;
       })
 
-      // Create QR
+      // Create QR — unwrap action.payload.data
       .addCase(createQr.pending, (state) => {
         state.actionLoading = true;
+        state.error = null;
       })
       .addCase(createQr.fulfilled, (state, action) => {
-        state.items.unshift(action.payload);
+        state.items.unshift(action.payload.data);
         state.actionLoading = false;
       })
-      .addCase(createQr.rejected, (state) => {
+      .addCase(createQr.rejected, (state, action) => {
         state.actionLoading = false;
+        state.error = action.payload as string;
       })
 
-      // Update QR
+      // Update QR — unwrap action.payload.data
       .addCase(updateQr.pending, (state) => {
         state.actionLoading = true;
+        state.error = null;
       })
       .addCase(updateQr.fulfilled, (state, action) => {
         state.actionLoading = false;
-        const index = state.items.findIndex((item) => item._id === action.payload._id);
+        const qr = action.payload.data;
+        const index = state.items.findIndex((item) => item._id === qr._id);
         if (index !== -1) {
-          state.items[index] = action.payload;
+          state.items[index] = qr;
         }
-        if (state.currentQr?._id === action.payload._id) {
-          state.currentQr = action.payload;
+        if (state.currentQr?._id === qr._id) {
+          state.currentQr = qr;
         }
       })
-      .addCase(updateQr.rejected, (state) => {
+      .addCase(updateQr.rejected, (state, action) => {
         state.actionLoading = false;
+        state.error = action.payload as string;
       })
 
-      // Delete QR
+      // Delete QR — unwrap action.payload.data (the deleted id)
       .addCase(deleteQr.pending, (state) => {
         state.actionLoading = true;
+        state.error = null;
       })
       .addCase(deleteQr.fulfilled, (state, action) => {
-        state.items = state.items.filter((item) => item._id !== action.payload);
-        if (state.currentQr?._id === action.payload) {
+        const deletedId = action.payload.data;
+        state.items = state.items.filter((item) => item._id !== deletedId);
+        if (state.currentQr?._id === deletedId) {
           state.currentQr = null;
           state.shortUrl = null;
         }
         state.actionLoading = false;
       })
-      .addCase(deleteQr.rejected, (state) => {
+      .addCase(deleteQr.rejected, (state, action) => {
         state.actionLoading = false;
+        state.error = action.payload as string;
       });
   },
 });

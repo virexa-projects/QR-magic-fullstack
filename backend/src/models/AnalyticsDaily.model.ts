@@ -6,6 +6,7 @@ export interface IAnalyticsDaily extends Document {
   owner: Types.ObjectId;
   date: string; // YYYY-MM-DD (UTC bucket)
   scans: number;
+  clicks: number; // NEW: CTA taps on the preview page (click-through, not just open)
   uniqueIps: number;
   deviceBreakdown: Record<string, number>;
   countryBreakdown: Record<string, number>;
@@ -20,6 +21,7 @@ const analyticsDailySchema = new Schema<IAnalyticsDaily>(
     owner: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     date: { type: String, required: true, index: true },
     scans: { type: Number, default: 0 },
+    clicks: { type: Number, default: 0 },
     uniqueIps: { type: Number, default: 0 },
     deviceBreakdown: { type: Schema.Types.Mixed, default: {} },
     countryBreakdown: { type: Schema.Types.Mixed, default: {} },
@@ -28,7 +30,6 @@ const analyticsDailySchema = new Schema<IAnalyticsDaily>(
   { timestamps: true }
 );
 
-// One rollup document per QR per day - upserted incrementally as scans arrive
 analyticsDailySchema.index({ qrCode: 1, date: 1 }, { unique: true });
 analyticsDailySchema.index({ owner: 1, date: 1 });
 

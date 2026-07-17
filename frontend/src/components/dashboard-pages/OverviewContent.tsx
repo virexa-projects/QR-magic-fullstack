@@ -1,23 +1,73 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { QrCode, Eye, TrendingUp, Activity, Plus, ArrowUpRight, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Area, AreaChart, PieChart, Pie, Cell } from "recharts";
-import { mockQRs, scansTrend, deviceBreakdown, summaryStats } from "@/lib/mockData";
-import { useAppSelector } from "@/store";
+import { useAppSelector, useAppDispatch } from "@/store";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { fetchSummary, fetchTrend, fetchDevices, fetchTopQrs } from "@/store/slices/analyticsSlice";
 
-const statCards = [
-  { label: "Total QR Codes", value: summaryStats.totalQRs, icon: QrCode, change: "+2 this week", color: "text-primary" },
-  { label: "Total Scans", value: summaryStats.totalScans.toLocaleString("en-IN"), icon: Eye, change: `+${summaryStats.weekChange}% vs last week`, color: "text-success" },
-  { label: "Scans Today", value: summaryStats.scansToday, icon: Activity, change: "Live", color: "text-warning" },
-  { label: "Active QRs", value: summaryStats.activeQRs, icon: TrendingUp, change: `${summaryStats.totalQRs - summaryStats.activeQRs} paused`, color: "text-primary" },
-];
+// Colors for the devices pie chart, keyed by the device string your
+// Scan/AnalyticsDaily documents actually store (lowercase).
+const DEVICE_COLORS: Record<string, string> = {
+  android: "#22C55E",
+  ios: "#3B82F6",
+  desktop: "#A855F7",
+  other: "#94A3B8",
+};
 
 function OverviewInner() {
+  const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
+  const { summary, trend, devices, topQrs } = useAppSelector((state) => state.analytics);
+
+  useEffect(() => {
+    dispatch(fetchSummary());
+    dispatch(fetchTrend());
+    dispatch(fetchDevices());
+    dispatch(fetchTopQrs({ limit: 4 }));
+  }, [dispatch]);
+
   const firstName = user?.name?.split(" ")[0] || "there";
-  const top = [...mockQRs].sort((a, b) => b.scansToday - a.scansToday).slice(0, 4);
+
+  // Backend doesn't return a "vs last week" % directly, so derive it from
+  // the trend series: sum of the last 7 days vs the 7 days before that.
+  const weekChange = (() => {
+    if (trend.length < 14) return 0;
+    const last7 = trend.slice(-7).reduce((sum, d) => sum + d.scans, 0);
+    const prev7 = trend.slice(-14, -7).reduce((sum, d) => sum + d.scans, 0);
+    if (prev7 === 0) return last7 > 0 ? 100 : 0;
+    return Math.round(((last7 - prev7) / prev7) * 100);
+  })();
+
+  // { android: 412, ios: 190, ... } -> [{ name, value, color }], value as a rounded %
+  const deviceBreakdown = (() => {
+    const total = Object.values(devices).reduce((sum, v) => sum + v, 0) || 1;
+    return Object.entries(devices)
+      .map(([name, count]) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        value: Math.round((count / total) * 100),
+        color: DEVICE_COLORS[name.toLowerCase()] ?? DEVICE_COLORS.other,
+      }))
+      .sort((a, b) => b.value - a.value);
+  })();
+
+  const topDevice = deviceBreakdown[0];
+
+  const totalQRs = summary?.totalQRs ?? 0;
+  const activeQRs = summary?.activeQRs ?? 0;
+  const totalScans = summary?.totalScans ?? 0;
+  const scansToday = summary?.scansToday ?? 0;
+
+  const statCards = [
+    { label: "Total QR Codes", value: totalQRs, icon: QrCode, change: "+2 this week", color: "text-primary" },
+    { label: "Total Scans", value: totalScans.toLocaleString("en-IN"), icon: Eye, change: `+${weekChange}% vs last week`, color: "text-success" },
+    { label: "Scans Today", value: scansToday, icon: Activity, change: "Live", color: "text-warning" },
+    { label: "Active QRs", value: activeQRs, icon: TrendingUp, change: `${totalQRs - activeQRs} paused`, color: "text-primary" },
+  ];
+
+  const top = topQrs.slice(0, 4);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -26,7 +76,7 @@ function OverviewInner() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold font-heading text-foreground">Welcome back, {firstName}! 👋</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            You've got <span className="font-semibold text-foreground">{summaryStats.scansToday} scans</span> today across {summaryStats.activeQRs} active QRs.
+            You've got <span className="font-semibold text-foreground">{scansToday} scans</span> today across {activeQRs} active QRs.
           </p>
         </div>
         <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-blue">
@@ -72,7 +122,7 @@ function OverviewInner() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={scansTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <AreaChart data={trend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="scansGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
@@ -106,8 +156,8 @@ function OverviewInner() {
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="text-2xl font-bold font-heading text-foreground">68%</div>
-              <div className="text-[10px] text-muted-foreground">Android</div>
+              <div className="text-2xl font-bold font-heading text-foreground">{topDevice?.value ?? 0}%</div>
+              <div className="text-[10px] text-muted-foreground">{topDevice?.name ?? "Android"}</div>
             </div>
           </div>
           <div className="mt-4 space-y-2">

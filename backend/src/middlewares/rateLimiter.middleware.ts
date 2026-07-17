@@ -24,13 +24,27 @@ function buildStore(prefix: string): RedisStore {
 function makeLazyLimiter(
   options: Omit<Parameters<typeof rateLimit>[0], "store">,
   prefix: string
-): (req: Request, res: Response, next: NextFunction) => void {
+) {
   let limiter: ReturnType<typeof rateLimit> | null = null;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!limiter) {
-      limiter = rateLimit({ ...options, store: buildStore(prefix) });
+    // Skip entirely outside production — avoids Redis-persisted counters
+    // biting you during local dev/testing.
+    if (env.NODE_ENV !== "production") {
+      return next();
     }
+
+    if (!limiter) {
+      limiter = rateLimit({
+        ...options,
+        store: buildStore(prefix),
+
+        validate: {
+          creationStack: false,
+        },
+      });
+    }
+
     return limiter(req, res, next);
   };
 }
@@ -42,22 +56,21 @@ export const globalRateLimiter = makeLazyLimiter(
     max: env.RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { success: false, message: "Too many requests, please try again later." },
+    message: {
+      success: false,
+      message: "Too many requests, please try again later.",
+    },
   },
   "rl:global:"
 );
 
 // Tighter limits for brute-force-sensitive auth endpoints
-export const authRateLimiter = makeLazyLimiter(
-  {
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { success: false, message: "Too many auth attempts, please try again in 15 minutes." },
-  },
-  "rl:auth:"
-);
+export const authRateLimiter = rateLimit({
+  windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
+  max: env.AUTH_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // High-throughput limiter for the public QR redirect/scan endpoint
 export const scanRateLimiter = makeLazyLimiter(
@@ -66,7 +79,10 @@ export const scanRateLimiter = makeLazyLimiter(
     max: 300,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { success: false, message: "Too many scans from this source." },
+    message: {
+      success: false,
+      message: "Too many scans from this source.",
+    },
   },
   "rl:scan:"
 );

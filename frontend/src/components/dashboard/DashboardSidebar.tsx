@@ -21,11 +21,11 @@ interface SidebarItem {
 }
 
 const items: SidebarItem[] = [
-  { title: "Overview", url: "/dashboard", icon: LayoutDashboard, end: true, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN] },
+  { title: "Overview", url: "/dashboard", icon: LayoutDashboard, end: true, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN,UserRole.USER] },
   { title: "Create QR", url: "/dashboard/create", icon: Plus, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
   { title: "My QR Codes", url: "/dashboard/codes", icon: QrCode, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
   { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
-  { title: "Billing", url: "/dashboard/billing", icon: CreditCard, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN] },
+  { title: "Billing", url: "/dashboard/billing", icon: CreditCard, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN,UserRole.USER] },
 ];
 
 export function DashboardSidebar() {

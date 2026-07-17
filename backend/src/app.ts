@@ -46,7 +46,10 @@ export function createApp(): Application {
   app.use("/r", redirectRouter);
 
   app.use("/api/v1", apiRouter);
-
+  app.use('/uploads', (req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  next();
+}, express.static('uploads'));
   app.use(notFoundHandler);
   app.use(errorHandler);
 

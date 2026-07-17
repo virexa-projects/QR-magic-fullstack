@@ -19,10 +19,14 @@ async function bootstrap(): Promise<void> {
   await initSocket(httpServer);
   startCronJobs();
 
-  httpServer.listen(env.PORT, () => {
-    logger.info(`Worker ${process.pid} listening on port ${env.PORT} [${env.NODE_ENV}]`);
-  });
-
+  // httpServer.listen(env.PORT, () => {
+  //   logger.info(`Worker ${process.pid} listening on port ${env.PORT} [${env.NODE_ENV}]`);
+  // });
+httpServer.listen(env.PORT, "0.0.0.0", () => {
+  logger.info(
+    `Worker ${process.pid} listening on 192.168.0.114:${env.PORT} [${env.NODE_ENV}]`
+  );
+});
   const shutdown = async (signal: string) => {
     logger.info(`${signal} received. Shutting down gracefully...`);
     httpServer.close(async () => {

@@ -12,6 +12,10 @@ import { Label } from "@/components/ui/label";
 import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/auth";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { loginUser } from "@/store/slices/authSlice";
+import { GoogleAuthButtons } from "@/components/auth/GoogleAuthButtons";
+import { loginSchema, type LoginFormData } from "@/lib/validations/auth";
+
+type LoginFieldErrors = Partial<Record<keyof LoginFormData, string>>;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,10 +26,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState<"email" | "password" | null>(null);
+  const [errors, setErrors] = useState<LoginFieldErrors>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const resultAction = await dispatch(loginUser({ email, password }));
+
+    const result = loginSchema.safeParse({ email, password });
+
+    if (!result.success) {
+      const fieldErrors: LoginFieldErrors = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as keyof LoginFormData;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
+
+    const resultAction = await dispatch(loginUser(result.data));
     if (loginUser.fulfilled.match(resultAction)) {
       router.push("/dashboard");
     }
@@ -34,6 +56,7 @@ export default function LoginPage() {
   const fillDemo = () => {
     setEmail(DEMO_EMAIL);
     setPassword(DEMO_PASSWORD);
+    setErrors({});
   };
 
   const copyVal = (val: string, kind: "email" | "password") => {
@@ -61,42 +84,7 @@ export default function LoginPage() {
           <h1 className="text-3xl md:text-4xl font-bold font-heading text-foreground">Welcome back</h1>
           <p className="mt-2 text-muted-foreground text-sm">Log in to manage your QR codes and analytics.</p>
 
-          {/* Demo creds card */}
-          <div className="mt-6 rounded-2xl border border-primary/20 bg-primary-soft p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-xs font-bold text-primary uppercase tracking-wider">Demo Account</span>
-            </div>
-            <div className="space-y-2 text-sm">
-              <button
-                type="button"
-                onClick={() => copyVal(DEMO_EMAIL, "email")}
-                className="w-full flex items-center justify-between bg-card rounded-lg px-3 py-2 hover:bg-card/80 transition"
-              >
-                <span className="font-mono text-foreground">{DEMO_EMAIL}</span>
-                {copied === "email" ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => copyVal(DEMO_PASSWORD, "password")}
-                className="w-full flex items-center justify-between bg-card rounded-lg px-3 py-2 hover:bg-card/80 transition"
-              >
-                <span className="font-mono text-foreground">{DEMO_PASSWORD}</span>
-                {copied === "password" ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
-              </button>
-            </div>
-            <Button
-              type="button"
-              onClick={fillDemo}
-              variant="ghost"
-              size="sm"
-              className="w-full mt-3 text-primary hover:bg-primary/10 h-8 text-xs font-semibold"
-            >
-              Auto-fill demo credentials
-            </Button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
               <Input
@@ -104,10 +92,21 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@business.in"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-11 bg-card border-border"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                }}
+                aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? "email-error" : undefined}
+                className={`h-11 bg-card border-border ${
+                  errors.email ? "border-destructive focus-visible:ring-destructive" : ""
+                }`}
               />
+              {errors.email && (
+                <p id="email-error" className="text-xs text-destructive mt-1">
+                  {errors.email}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -120,9 +119,15 @@ export default function LoginPage() {
                   type={show ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="h-11 bg-card border-border pr-10"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  className={`h-11 bg-card border-border pr-10 ${
+                    errors.password ? "border-destructive focus-visible:ring-destructive" : ""
+                  }`}
                 />
                 <button
                   type="button"
@@ -132,6 +137,11 @@ export default function LoginPage() {
                   {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {errors.password && (
+                <p id="password-error" className="text-xs text-destructive mt-1">
+                  {errors.password}
+                </p>
+              )}
             </div>
 
             <Button
@@ -142,6 +152,15 @@ export default function LoginPage() {
               {authLoading ? "Signing in…" : <>Sign in <ArrowRight className="w-4 h-4 ml-1.5" /></>}
             </Button>
           </form>
+          <div className="mt-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">Or continue with</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="mt-4">
+            <GoogleAuthButtons mode="signin"/>
+          </div>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             New to QRBharat?{" "}
