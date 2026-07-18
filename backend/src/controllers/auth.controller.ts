@@ -28,7 +28,7 @@ function cookieOptions(maxAgeMs: number) {
 }
 
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
-  res.cookie(ACCESS_COOKIE, accessToken, cookieOptions(15 * 60 * 1000));
+  res.cookie(ACCESS_COOKIE, accessToken, cookieOptions(24 * 60 * 60 * 1000));
   res.cookie(REFRESH_COOKIE, refreshToken, cookieOptions(30 * 24 * 60 * 60 * 1000));
 }
 

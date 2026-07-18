@@ -26,6 +26,7 @@ export default function StyledQrPreview({
     const qr = new QRCodeStyling({
       width: size,
       height: size,
+      type: "svg", // explicit, matches Step3Qr's own preview instance
       data: value,
       image: design.logo || undefined,
       qrOptions: {
@@ -36,14 +37,14 @@ export default function StyledQrPreview({
         type: design.dotStyle as any,
         gradient: design.useGradient
           ? {
-            type: design.gradientType || "linear",
-            rotation: ((design.gradientRotation || 0) * Math.PI) / 180,
-            colorStops:
-              design.gradientColors?.map((c, index) => ({
-                offset: index / ((design.gradientColors?.length || 2) - 1),
-                color: c,
-              })) || [],
-          }
+              type: design.gradientType || "linear",
+              rotation: ((design.gradientRotation || 0) * Math.PI) / 180,
+              colorStops:
+                design.gradientColors?.map((c, index) => ({
+                  offset: index / ((design.gradientColors?.length || 2) - 1),
+                  color: c,
+                })) || [],
+            }
           : undefined,
       },
       cornersSquareOptions: {

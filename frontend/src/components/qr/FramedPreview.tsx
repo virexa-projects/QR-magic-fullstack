@@ -27,12 +27,16 @@ export default function FramedPreview({
     } :
     { borderColor: frameColor };
 
-  const qrSlotClass =
-    frame === "polaroid" ? "p-2" :
-    frame === "ticket" ? "relative flex items-stretch border-2 border-dashed rounded-xl overflow-hidden" :
-    frame === "ribbon" ? "relative p-4 rounded-xl border" :
-    frame === "rounded" ? "p-4 rounded-2xl border-2" :
-    "p-4";
+ const qrSlotClass =
+  frame === "polaroid"
+    ? "p-0"
+    : frame === "ticket"
+    ? "relative flex items-stretch border-2 border-dashed rounded-xl overflow-hidden"
+    : frame === "ribbon"
+    ? "relative p-0 rounded-xl border"
+    : frame === "rounded"
+    ? "p-0 rounded-2xl border-2"
+    : "p-0";
 
   const qrSlotStyle: React.CSSProperties =
     frame === "ticket" || frame === "ribbon" || frame === "rounded"

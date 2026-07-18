@@ -15,6 +15,14 @@ export enum QRType {
   PHONE = "phone",
   SMS = "sms",
   LOCATION = "location",
+  IMAGE = "image",
+  VIDEO = "video",
+  AUDIO = "audio",
+  SOCIAL = "social",
+  EVENT = "event",
+  FEEDBACK = "feedback",
+  MENU = "menu",
+  PLAYLIST = "playlist",
 }
 
 export enum QRStatus {

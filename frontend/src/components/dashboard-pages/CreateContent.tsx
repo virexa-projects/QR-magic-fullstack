@@ -6,38 +6,22 @@ import { AppDispatch, RootState } from "@/store";
 import { createQr } from "@/store/slices/qrSlice";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Link as LinkIcon, Phone, Mail, MessageSquare, Wifi,
-  User, MapPin, FileText, Download, Sparkles, RotateCcw, Copy, Check,
-  ClipboardPaste, Eye, QrCode, Save, ArrowLeft, ArrowRight,
-  Plus, X,
+  Download, Sparkles, RotateCcw, Copy, Check, Eye, QrCode, Save, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import PhonePreview from "@/components/PhonePreview";
-import SocialPicker from "@/components/dashboard/SocialPicker";
-import LabeledInputList from "@/components/dashboard/LabeledInputList";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import QrPreviewModal from "@/components/dashboard/QrPreviewModal";
 import { savePendingQrDraft } from "@/utils/pendingQrDraft";
 import StyledQrPreview from "../dashboard/StyledQrPreview";
 import type { QRDesign } from "@/lib/mockData";
-
-type QRType = "url" | "text" | "whatsapp" | "wifi" | "vcard" | "email" | "phone" | "sms" | "location";
-
-const qrTypes: { id: QRType; label: string; icon: React.ElementType; desc: string; popular?: boolean }[] = [
-  { id: "url", label: "Website", icon: LinkIcon, desc: "Link to any URL", popular: true },
-  { id: "vcard", label: "vCard", icon: User, desc: "Digital business card", popular: true },
-  { id: "whatsapp", label: "WhatsApp", icon: MessageSquare, desc: "Open chat instantly", popular: true },
-  { id: "wifi", label: "Wi-Fi", icon: Wifi, desc: "One-tap connect" },
-  { id: "text", label: "Text", icon: FileText, desc: "Plain text" },
-  { id: "email", label: "Email", icon: Mail, desc: "Pre-filled message" },
-  { id: "phone", label: "Phone", icon: Phone, desc: "Tap to call" },
-  { id: "sms", label: "SMS", icon: MessageSquare, desc: "Pre-filled SMS" },
-  { id: "location", label: "Location", icon: MapPin, desc: "GPS coordinates" },
-];
+import Step3Qr from "@/components/qr-builder/Step3Qr";
+import QrTypeGrid from "@/components/qr-builder/QrTypeGrid";
+import PhoneFrame from "@/components/qr-builder/preview/PhoneFrame";
+import { QR_TYPE_REGISTRY } from "@/lib/qr-types/registry";
+import { validateQrValue, type QrTypeId } from "@/lib/qr-types/schema";
 
 const presetColors = [
   { fg: "#000000", bg: "#FFFFFF", name: "Classic" },
@@ -48,112 +32,90 @@ const presetColors = [
   { fg: "#ea580c", bg: "#FFFFFF", name: "Orange" },
 ];
 
-function smartDetect(text: string): { type: QRType; data: Record<string, string> } | null {
-  const t = text.trim();
-  if (!t) return null;
-  if (/^https?:\/\//i.test(t)) {
-    const m = t.match(/wa\.me\/(\d+)/i);
-    if (m) return { type: "whatsapp", data: { phone: `+${m[1]}` } };
-    return { type: "url", data: { url: t } };
-  }
-  if (/^[\w.+-]+@[\w.-]+\.\w{2,}$/i.test(t)) return { type: "email", data: { email: t } };
-  if (/^(\+?\d{1,4}[\s-]?)?\d{10,}$/.test(t.replace(/[\s()-]/g, ""))) return { type: "phone", data: { phone: t } };
-  return { type: "text", data: { text: t } };
-}
-
 const STEPS = [
   { n: 1, label: "Type" },
   { n: 2, label: "Content" },
-  { n: 3, label: "Create Qr" },
+  { n: 3, label: "Create QR" },
 ];
 
 function CreateInner() {
   const router = useRouter();
   const isAuthenticated = useSelector((s: RootState) => s.auth.isAuthenticated);
-
   const dispatch = useDispatch<AppDispatch>();
   const { actionLoading } = useSelector((state: RootState) => state.qr);
+
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [selectedType, setSelectedType] = useState<QRType>("url");
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [selectedType, setSelectedType] = useState<QrTypeId>("url");
+  const [formValue, setFormValue] = useState<any>(QR_TYPE_REGISTRY.url.defaultValue);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const [fgColor, setFgColor] = useState("#000099");
+  const [qrDesign, setQrDesign] = useState<QRDesign>({
+    fgColor: "#000099",
+    bgColor: "#FFFFFF",
+    eyeColor: "#000099",
+    dotStyle: "rounded",
+    frame: "none",
+    useGradient: false,
+    gradientColors: ["#000099", "#7c3aed"],
+    gradientType: "linear",
+    gradientRotation: 45,
+    cornersSquareStyle: "extra-rounded",
+    cornersDotStyle: "dot",
+    frameColor: "#000099",
+    frameText: "SCAN ME",
+    logo: "",
+    logoSize: 0.22,
+    hideBackgroundDots: true,
+    errorCorrectionLevel: "H",
+  });
   const [bgColor, setBgColor] = useState("#FFFFFF");
-  // vCard digital-card appearance (separate from QR colors)
-  const [cardBanner, setCardBanner] = useState("#000099");
-  const [cardAccent, setCardAccent] = useState("#000099");
   const [copied, setCopied] = useState(false);
   const [previewMode, setPreviewMode] = useState<"preview" | "qr">("preview");
   const [qrName, setQrName] = useState("");
   const [isDynamic, setIsDynamic] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [savedQr, setSavedQr] = useState<{
-    name: string;
-    type: QRType;
-    qrValue: string;
-    fgColor: string;
-    bgColor: string;
-    isDynamic: boolean;
-    shortUrl?: string;
-    design?: QRDesign;
+    name: string; type: QrTypeId; qrValue: string; fgColor: string; bgColor: string;
+    isDynamic: boolean; shortUrl?: string; design?: QRDesign;
   } | null>(null);
 
-  // This form only exposes fg/bg color pickers, so the design object built
-  // here is a simple one (square dots, no frame). QRDesignDialog is where
-  // users pick dot style / corners / frame / gradient after creation.
-  const qrDesign: QRDesign = useMemo(
-    () => ({
-      fgColor,
-      bgColor,
-      eyeColor: fgColor,
-      dotStyle: "square",
-      frame: "none",
-    }),
-    [fgColor, bgColor]
-  );
+  const def = QR_TYPE_REGISTRY[selectedType];
 
   const getQRValue = useCallback((): string => {
-    const d = formData;
-    switch (selectedType) {
-      case "url": return d.url || "https://example.com";
-      case "text": return d.text || "Hello World";
-      case "whatsapp": {
-        const phone = (d.phone || "").replace(/\D/g, "");
-        const msg = d.message ? `?text=${encodeURIComponent(d.message)}` : "";
-        return `https://wa.me/${phone}${msg}`;
-      }
-      case "wifi": return `WIFI:T:${d.encryption || "WPA"};S:${d.ssid || ""};P:${d.password || ""};;`;
-      case "vcard": {
-        const phones = parseList(d.phones);
-        const emails = parseList(d.emails);
-        const socials = parseList(d.socials);
-        const lines = [
-          "BEGIN:VCARD",
-          "VERSION:3.0",
-          `FN:${d.fullName || ""}`,
-          `TITLE:${d.role || ""}`,
-          `ORG:${d.company || ""}`,
-          ...phones.map((p) => `TEL;TYPE=${(p.label || "CELL").toUpperCase()}:${p.value}`),
-          ...emails.map((e) => `EMAIL;TYPE=${(e.label || "WORK").toUpperCase()}:${e.value}`),
-          ...socials.map((s) => `URL;TYPE=${(s.label || "URL").toUpperCase()}:${s.value}`),
-          "END:VCARD",
-        ];
-        return lines.join("\n");
-      }
-      case "email": return `mailto:${d.email || ""}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}`;
-      case "phone": return `tel:${d.phone || ""}`;
-      case "sms": return `sms:${d.phone || ""}?body=${encodeURIComponent(d.message || "")}`;
-      case "location": return `geo:${d.latitude || "0"},${d.longitude || "0"}`;
-      default: return "";
+    try {
+      return def.encode(formValue) || "https://example.com";
+    } catch {
+      return "https://example.com";
     }
-  }, [selectedType, formData]);
+  }, [def, formValue]);
 
-  const setField = (k: string, v: string) => setFormData((p) => ({ ...p, [k]: v }));
+  const selectType = (id: QrTypeId) => {
+    setSelectedType(id);
+    setFormValue(QR_TYPE_REGISTRY[id].defaultValue);
+    setErrors({});
+  };
 
-  // StyledQrPreview (qr-code-styling) can render either a <canvas> or an
-  // <svg> depending on config, so handle both instead of assuming canvas.
+  const setFormField = (v: any) => {
+    setFormValue(v);
+    if (Object.keys(errors).length) {
+      const { errors: nextErrors } = validateQrValue(selectedType, v);
+      setErrors(nextErrors);
+    }
+  };
+
+  const validateStep2 = (): boolean => {
+    const result = validateQrValue(selectedType, formValue);
+    setErrors(result.errors);
+    if (!result.success) {
+      const firstMessage = Object.values(result.errors)[0];
+      toast.error(firstMessage || "Please fix the highlighted fields");
+    }
+    return result.success;
+  };
+
   const handleDownload = () => {
     const canvas = canvasRef.current?.querySelector("canvas") as HTMLCanvasElement | null;
     if (canvas) {
@@ -164,7 +126,6 @@ function CreateInner() {
       toast.success("Downloaded");
       return;
     }
-
     const svg = canvasRef.current?.querySelector("svg") as SVGSVGElement | null;
     if (svg) {
       const xml = new XMLSerializer().serializeToString(svg);
@@ -178,7 +139,6 @@ function CreateInner() {
       toast.success("Downloaded");
       return;
     }
-
     toast.error("Nothing to download yet");
   };
 
@@ -194,8 +154,6 @@ function CreateInner() {
       });
       return;
     }
-
-    // Fall back to copying the SVG markup as text if no canvas was rendered.
     const svg = canvasRef.current?.querySelector("svg") as SVGSVGElement | null;
     if (svg) {
       const xml = new XMLSerializer().serializeToString(svg);
@@ -204,10 +162,17 @@ function CreateInner() {
       setTimeout(() => setCopied(false), 1500);
       return;
     }
-
     toast.error("Nothing to copy yet");
   };
 
+  // FIX: previously hardcoded fgColor/bgColor/dotStyle:"square"/frame:"none"
+  // and separately re-spread vcardTheme.bannerColor/accentColor onto `design`.
+  // Those two keys aren't declared on the Mongoose designSchema (which is
+  // strict, not Mixed), so they were silently dropped on save anyway — the
+  // vCard's real banner/accent colors already live safely inside
+  // `content.theme` (formValue.theme), which is stored via the
+  // Schema.Types.Mixed `content` field. Now `design` is just the full,
+  // correct qrDesign object the user actually built in Step 3.
   const buildPayload = () => {
     const finalQrValue = getQRValue();
 
@@ -215,243 +180,81 @@ function CreateInner() {
       name: qrName.trim(),
       type: selectedType,
       isDynamic,
-      destination: finalQrValue, // required backend destination field
-      design: {
-        fgColor: fgColor,
-        bgColor: bgColor,
-        eyeColor: fgColor,
-        dotStyle: "square" as const,
-        frame: "none" as const,
-        bannerColor: cardBanner,
-        accentColor: cardAccent,
-      },
+      destination: finalQrValue,
+      design: qrDesign,
       qrValue: finalQrValue,
-      content: (() => {
-        switch (selectedType) {
-          case "url": return { url: formData.url || "" };
-          case "text": return { text: formData.text || "" };
-          case "whatsapp": return { phone: formData.phone || "", message: formData.message || "" };
-          case "wifi": return { ssid: formData.ssid || "", password: formData.password || "", encryption: formData.encryption || "WPA" };
-          case "vcard": return {
-            fullName: formData.fullName || "",
-            role: formData.role || "",
-            company: formData.company || "",
-            phones: parseList(formData.phones),
-            emails: parseList(formData.emails),
-            socials: parseList(formData.socials),
-          };
-          case "email": return { email: formData.email || "", subject: formData.subject || "", body: formData.body || "" };
-          case "phone": return { phone: formData.phone || "" };
-          case "sms": return { phone: formData.phone || "", message: formData.message || "" };
-          case "location": return { latitude: formData.latitude || "", longitude: formData.longitude || "" };
-          default: return {};
-        }
-      })(),
+      content: formValue,
     };
   };
 
   const resetForm = () => {
-    setFormData({});
+    setFormValue(QR_TYPE_REGISTRY[selectedType].defaultValue);
+    setErrors({});
     setQrName("");
     setStep(1);
     setPreviewMode("preview");
   };
 
- const handleSave = async () => {
-  if (!qrName.trim()) {
-    return toast.error("Add a name first");
-  }
-  if (!isAuthenticated) {
-    savePendingQrDraft({
-      type: selectedType,
-      formData,
-      fgColor,
-      bgColor,
-    });
-    router.push("/login?redirect=/create&resume=true");
-    return;
-  }
-  const payload = buildPayload();
-
-  try {
-    const result = await dispatch(createQr(payload)).unwrap();
-    const qr = result.data; // QrCode object, per the thunk's actual return shape
-
-    setSavedQr({
-      name: qr?.name ?? payload.name,
-      type: (qr?.type as QRType) ?? payload.type,
-      qrValue: payload.qrValue,
-      fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
-      bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
-      isDynamic: qr?.isDynamic ?? payload.isDynamic,
-      shortUrl: qr?.shortUrl,
-      design: qr?.design ?? payload.design,
-    });
-    setShowSuccessModal(true);
-  } catch (error: any) {
-    console.error("Redux dispatch rejection traceback:", error);
-    
-  }
-};
+  const handleSave = async () => {
+    if (!qrName.trim()) return toast.error("Add a name first");
+    if (!validateStep2()) {
+      setStep(2);
+      return;
+    }
+    if (!isAuthenticated) {
+      savePendingQrDraft({ type: selectedType, formData: formValue, fgColor, bgColor });
+      router.push("/login?redirect=/create&resume=true");
+      return;
+    }
+    const payload = buildPayload();
+    try {
+      const result = await dispatch(createQr(payload)).unwrap();
+      const qr = result.data;
+      setSavedQr({
+        name: qr?.name ?? payload.name,
+        type: (qr?.type as QrTypeId) ?? payload.type,
+        qrValue: payload.qrValue,
+        fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
+        bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
+        isDynamic: qr?.isDynamic ?? payload.isDynamic,
+        shortUrl: qr?.shortUrl,
+        design: qr?.design ?? payload.design,
+      });
+      setShowSuccessModal(true);
+    } catch (error: any) {
+      console.error("Redux dispatch rejection traceback:", error);
+      toast.error(typeof error === "string" ? error : "Couldn't save this QR — try again");
+    }
+  };
 
   const handleViewInLibrary = () => {
     setShowSuccessModal(false);
     resetForm();
     router.push("codes");
   };
-
   const handleCreateAnother = () => {
     setShowSuccessModal(false);
     resetForm();
   };
 
-  const handleSmartPaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      const r = smartDetect(text);
-      if (r) {
-        setSelectedType(r.type);
-        setFormData(r.data);
-        setStep(2);
-        toast.success(`Detected ${qrTypes.find(t => t.id === r.type)?.label}`);
-      } else toast.error("Couldn't detect content");
-    } catch {
-      toast.error("Clipboard access denied");
-    }
-  };
-
-  const renderField = (label: string, placeholder: string, field: string, type: string = "text") => (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
-      <Input
-        type={type}
-        placeholder={placeholder}
-        value={formData[field] || ""}
-        onChange={(e) => setField(field, e.target.value)}
-        className="h-10 bg-background border-border"
-      />
-    </div>
-  );
-
-  const renderVCardFields = () => {
-    const phones = parseList(formData.phones);
-    const emails = parseList(formData.emails);
-    const socials = parseList(formData.socials);
-    return (
-      <div className="space-y-5">
-        {renderField("Full name", "Rahul Sharma", "fullName")}
-        <div className="grid grid-cols-2 gap-3">
-          {renderField("Job title / role", "Marketing Manager", "role")}
-          {renderField("Company", "Your Company", "company")}
-        </div>
-        <LabeledInputList
-          title="Phone numbers"
-          addLabel="Add phone"
-          items={phones}
-          labels={["Mobile", "Work", "Home", "Other"]}
-          placeholder="+91 98765 43210"
-          type="tel"
-          onChange={(items) => setField("phones", JSON.stringify(items))}
-        />
-        <LabeledInputList
-          title="Email addresses"
-          addLabel="Add email"
-          items={emails}
-          labels={["Work", "Personal", "Other"]}
-          placeholder="rahul@example.com"
-          type="email"
-          onChange={(items) => setField("emails", JSON.stringify(items))}
-        />
-        <SocialPicker
-          items={socials}
-          onChange={(items) => setField("socials", JSON.stringify(items))}
-        />
-
-        {/* Card appearance */}
-        <div className="pt-2 border-t border-border">
-          <div className="flex items-center justify-between mb-3">
-            <Label className="text-xs font-semibold text-foreground">Card appearance</Label>
-            <span className="text-[10px] text-muted-foreground">How the digital card looks</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">Header banner</Label>
-              <div className="flex items-center gap-2 h-10 px-2 rounded-lg border border-border bg-background">
-                <input type="color" value={cardBanner} onChange={(e) => setCardBanner(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent" />
-                <span className="text-[11px] font-mono text-foreground uppercase">{cardBanner}</span>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">Accent (buttons)</Label>
-              <div className="flex items-center gap-2 h-10 px-2 rounded-lg border border-border bg-background">
-                <input type="color" value={cardAccent} onChange={(e) => setCardAccent(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent" />
-                <span className="text-[11px] font-mono text-foreground uppercase">{cardAccent}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {[
-              { name: "Indigo", banner: "#000099", accent: "#000099" },
-              { name: "Lime", banner: "#1a1a2e", accent: "#84cc16" },
-              { name: "Slate", banner: "#1a1a2e", accent: "#475569" },
-              { name: "Sunset", banner: "#dc2626", accent: "#ea580c" },
-              { name: "Forest", banner: "#0d5c3a", accent: "#10b981" },
-              { name: "Ocean", banner: "#0369a1", accent: "#0ea5e9" },
-            ].map((p) => {
-              const sel = cardBanner === p.banner && cardAccent === p.accent;
-              return (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => { setCardBanner(p.banner); setCardAccent(p.accent); }}
-                  title={p.name}
-                  className={`h-7 px-2.5 rounded-md border text-[10px] font-medium flex items-center gap-1.5 transition ${sel ? "border-foreground bg-secondary" : "border-border bg-background hover:border-foreground/30"}`}
-                >
-                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.banner }} />
-                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.accent }} />
-                  {p.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderFields = () => {
-    switch (selectedType) {
-      case "url": return renderField("Website URL", "https://yourwebsite.com", "url", "url");
-      case "text": return (
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-muted-foreground">Your text</Label>
-          <Textarea placeholder="Enter text…" value={formData.text || ""} onChange={(e) => setField("text", e.target.value)} className="min-h-[110px]" />
-        </div>
-      );
-      case "whatsapp": return (<>{renderField("Phone (with country code)", "+91 98765 43210", "phone")}{renderField("Pre-filled message (optional)", "Hi! Found you via QR", "message")}</>);
-      case "wifi": return (<>{renderField("Network name (SSID)", "MyWiFi", "ssid")}{renderField("Password", "••••••••", "password", "password")}<div className="space-y-1.5"><Label className="text-xs font-medium text-muted-foreground">Encryption</Label><div className="flex gap-2">{["WPA", "WEP", "nopass"].map((enc) => (<button key={enc} onClick={() => setField("encryption", enc)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${(formData.encryption || "WPA") === enc ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/70"}`}>{enc === "nopass" ? "None" : enc}</button>))}</div></div></>);
-      case "vcard": return renderVCardFields();
-      case "email": return (<>{renderField("Email address", "hello@example.com", "email", "email")}{renderField("Subject", "Subject", "subject")}{renderField("Message", "Your message…", "body")}</>);
-      case "phone": return renderField("Phone number", "+91 98765 43210", "phone");
-      case "sms": return (<>{renderField("Phone number", "+91 98765 43210", "phone")}{renderField("Message", "Your message…", "message")}</>);
-      case "location": return (<div className="grid grid-cols-2 gap-3">{renderField("Latitude", "28.6139", "latitude")}{renderField("Longitude", "77.2090", "longitude")}</div>);
-      default: return null;
-    }
-  };
-
-  // Force preview mode appropriately as user moves through steps
   const onNext = () => {
     if (step === 1) setStep(2);
-    else if (step === 2) { setStep(3); setPreviewMode("qr"); }
+    else if (step === 2) {
+      if (!validateStep2()) return;
+      setStep(3);
+      setPreviewMode("qr");
+    }
   };
   const onBack = () => {
     if (step === 3) { setStep(2); setPreviewMode("preview"); }
     else if (step === 2) setStep(1);
   };
 
+  const FormComponent = def.FormComponent;
+  const PreviewComponent = def.PreviewComponent;
+
   return (
     <div className="max-w-[1400px] mx-auto pb-20">
-      {/* Header with stepper */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold font-heading text-foreground">Create a QR code</h1>
@@ -469,12 +272,9 @@ function CreateInner() {
               <div key={s.n} className="flex items-center gap-2 flex-1">
                 <button
                   onClick={() => (done ? setStep(s.n as 1 | 2 | 3) : null)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition ${active ? "bg-primary/10" : done ? "hover:bg-secondary cursor-pointer" : ""
-                    }`}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition ${active ? "bg-primary/10" : done ? "hover:bg-secondary cursor-pointer" : ""}`}
                 >
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold transition ${active ? "bg-primary text-primary-foreground" :
-                    done ? "bg-lime text-lime-foreground" :
-                      "bg-secondary text-muted-foreground"
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold transition ${active ? "bg-primary text-primary-foreground" : done ? "bg-lime text-lime-foreground" : "bg-secondary text-muted-foreground"
                     }`}>
                     {done ? <Check className="w-3.5 h-3.5" /> : s.n}
                   </span>
@@ -482,9 +282,7 @@ function CreateInner() {
                     {s.label}
                   </span>
                 </button>
-                {i < STEPS.length - 1 && (
-                  <div className={`flex-1 h-px ${done ? "bg-lime" : "bg-border"}`} />
-                )}
+                {i < STEPS.length - 1 && <div className={`flex-1 h-px ${done ? "bg-lime" : "bg-border"}`} />}
               </div>
             );
           })}
@@ -495,44 +293,12 @@ function CreateInner() {
         {/* LEFT — step content */}
         <div>
           <AnimatePresence mode="wait">
-            {/* STEP 1 — choose type */}
             {step === 1 && (
-              <motion.div key="s1" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="bg-card rounded-xl border border-border p-5">
-                <div className="mb-4">
-                  <h2 className="text-base font-bold text-foreground">Pick a QR type</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">What should happen when someone scans?</p>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {qrTypes.map((t) => {
-                    const Icon = t.icon;
-                    const sel = selectedType === t.id;
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => { setSelectedType(t.id); setFormData({}); }}
-                        className={`relative text-left rounded-xl border p-3 transition-all ${sel
-                          ? "bg-primary/5 border-primary ring-1 ring-primary/30"
-                          : "bg-background border-border hover:border-foreground/30"
-                          }`}
-                      >
-                        {t.popular && !sel && (
-                          <span className="absolute top-2 right-2 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-lime text-lime-foreground">
-                            Popular
-                          </span>
-                        )}
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${sel ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}>
-                          <Icon className="w-4 h-4" />
-                        </div>
-                        <div className={`text-sm font-semibold ${sel ? "text-primary" : "text-foreground"}`}>{t.label}</div>
-                        <div className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{t.desc}</div>
-                      </button>
-                    );
-                  })}
-                </div>
+              <motion.div key="s1" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }}>
+                <QrTypeGrid selected={selectedType} onSelect={selectType} />
               </motion.div>
             )}
 
-            {/* STEP 2 — content */}
             {step === 2 && (
               <motion.div key="s2" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="space-y-4">
                 <div className="bg-card rounded-xl border border-border p-5">
@@ -540,101 +306,72 @@ function CreateInner() {
                   <p className="text-[11px] text-muted-foreground mb-3">For your library — won't appear on the code.</p>
                   <Input placeholder="e.g. Diwali landing page" value={qrName} onChange={(e) => setQrName(e.target.value)} className="h-10" />
                 </div>
-                <div className="bg-card rounded-xl border border-border p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h2 className="text-base font-bold text-foreground">Add your content</h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">Watch the phone preview update as you type.</p>
-                    </div>
-                    <button onClick={() => setStep(1)} className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
-                      Change type
-                    </button>
+                <div className="flex items-center justify-between px-1">
+                  <div>
+                    <h2 className="text-base font-bold text-foreground">Add your content</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">Watch the phone preview update as you type.</p>
                   </div>
-                  <div className="space-y-3">{renderFields()}</div>
+                  <button onClick={() => setStep(1)} className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
+                    Change type
+                  </button>
                 </div>
-
-                
+                <FormComponent value={formValue} onChange={setFormField} errors={errors} />
               </motion.div>
             )}
 
-            {/* STEP 3 — design */}
             {step === 3 && (
-              <motion.div key="s3" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="space-y-4">
-                <div className="bg-card rounded-xl border border-border p-5">
-                  <div className="mb-4">
-                    <h2 className="text-base font-bold text-foreground">Design your QR</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">Pick colors that match your brand.</p>
-                  </div>
-                  <div className="space-y-5">
-                    <div>
-                      <Label className="text-xs font-medium text-muted-foreground mb-2 block">Color preset</Label>
-                      <div className="grid grid-cols-6 gap-2">
-                        {presetColors.map((p) => {
-                          const sel = fgColor === p.fg && bgColor === p.bg;
-                          return (
-                            <button
-                              key={p.name}
-                              onClick={() => { setFgColor(p.fg); setBgColor(p.bg); }}
-                              title={p.name}
-                              className={`aspect-square rounded-lg border-2 transition-all ${sel ? "border-foreground scale-95" : "border-border hover:border-foreground/30"}`}
-                              style={{ background: `linear-gradient(135deg, ${p.fg} 50%, ${p.bg} 50%)` }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-muted-foreground">Foreground</Label>
-                        <div className="flex items-center gap-2 h-10 px-2 rounded-lg border border-border bg-background">
-                          <input type="color" value={fgColor} onChange={(e) => setFgColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent" />
-                          <span className="text-xs font-mono text-foreground">{fgColor.toUpperCase()}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-muted-foreground">Background</Label>
-                        <div className="flex items-center gap-2 h-10 px-2 rounded-lg border border-border bg-background">
-                          <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent" />
-                          <span className="text-xs font-mono text-foreground">{bgColor.toUpperCase()}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-card rounded-xl border border-border p-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Save options</h3>
-                  <label className="flex items-start gap-3 p-3 rounded-lg border border-border bg-background cursor-pointer hover:border-foreground/30 transition mb-3">
-                    <input type="checkbox" checked={isDynamic} onChange={(e) => setIsDynamic(e.target.checked)} className="mt-0.5 accent-primary" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                        Dynamic QR
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-lime text-lime-foreground font-semibold">PRO</span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">Edit destination later without reprinting. Tracks scans.</div>
-                    </div>
-                  </label>
-                  <Button onClick={handleSave} disabled={actionLoading} className="w-full h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
-                    <Save className="w-4 h-4 mr-2" /> {actionLoading ? "Saving…" : "Save to library"}
-                  </Button>
-                </div>
+              <motion.div
+                key="s3"
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 8 }}
+                transition={{ duration: 0.18 }}
+              >
+                <Step3Qr
+                  design={qrDesign}
+                  fgColor={fgColor}
+                  setFgColor={setFgColor}
+                  bgColor={bgColor}
+                  setBgColor={setBgColor}
+                  qrName={qrName}
+                  setQrName={setQrName}
+                  isDynamic={isDynamic}
+                  setIsDynamic={setIsDynamic}
+                  onSave={handleSave}
+                  isLoading={actionLoading}
+                  presetColors={presetColors}
+                  qrValue={getQRValue()}
+                  onCancel={onBack}
+                  setDesign={setQrDesign}
+                />
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Step nav */}
-          <div className="flex items-center justify-between mt-5">
-            <Button variant="ghost" onClick={onBack} disabled={step === 1} className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
+          {/* Step nav — sticky bottom bar so Back/Next are always reachable,
+              full-width tap targets on mobile so they're easy to hit. */}
+          <div className="sticky bottom-0 z-30 mt-6 -mx-4 sm:mx-0 px-4 sm:px-5 py-3 flex items-center gap-3 bg-card/95 backdrop-blur border-t border-border sm:border sm:rounded-xl shadow-[0_-4px_16px_-8px_rgba(0,0,0,0.08)] sm:shadow-none">
+            <Button
+              variant="outline"
+              onClick={onBack}
+              disabled={step === 1}
+              className="flex-1 sm:flex-none h-11 gap-1.5 justify-center text-foreground disabled:opacity-30"
+            >
               <ArrowLeft className="w-4 h-4" /> Back
             </Button>
+
+            <div className="hidden sm:block flex-1 text-center text-[11px] font-medium text-muted-foreground">
+              Step {step} of 3 — {STEPS[step - 1].label}
+            </div>
+
             {step < 3 ? (
-              <Button onClick={onNext} className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-5">
+              <Button onClick={onNext} className="flex-1 sm:flex-none h-11 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-6 justify-center">
                 Next <ArrowRight className="w-4 h-4" />
               </Button>
             ) : (
-              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-lime" /> Ready to download
-              </div>
+              <Button onClick={handleSave} disabled={actionLoading} className="w-1/4 h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
+                <Save className="w-4 h-4 mr-2" /> {actionLoading ? "Saving…" : "Save to library"}
+              </Button>
             )}
           </div>
         </div>
@@ -659,7 +396,9 @@ function CreateInner() {
           <AnimatePresence mode="wait">
             {previewMode === "preview" ? (
               <motion.div key="phone" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.15 }} className="bg-card rounded-xl border border-border p-5 flex justify-center">
-                <PhonePreview type={selectedType} data={formData} cardDesign={{ banner: cardBanner, accent: cardAccent }} />
+                <PhoneFrame animKey={selectedType}>
+                  <PreviewComponent value={formValue} />
+                </PhoneFrame>
               </motion.div>
             ) : (
               <motion.div key="qr" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.15 }} className="bg-card rounded-xl border border-border p-5">
@@ -674,7 +413,7 @@ function CreateInner() {
                     {copied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
                     {copied ? "Copied" : "Copy"}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setFormData({}); setQrName(""); }} className="text-xs h-9">
+                  <Button variant="outline" size="sm" onClick={() => { setFormValue(QR_TYPE_REGISTRY[selectedType].defaultValue); setQrName(""); setErrors({}); }} className="text-xs h-9">
                     <RotateCcw className="w-3 h-3 mr-1" /> Reset
                   </Button>
                 </div>
@@ -704,14 +443,6 @@ function CreateInner() {
       />
     </div>
   );
-}
-
-// ============ helpers ============
-type ListItem = { label: string; value: string };
-
-function parseList(raw?: string): ListItem[] {
-  if (!raw) return [];
-  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
 export default function CreateContent() {

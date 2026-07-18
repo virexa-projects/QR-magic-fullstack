@@ -20,15 +20,45 @@ export interface QrDesign {
   fgColor: string;
   bgColor: string;
   eyeColor?: string;
+
   dotStyle:
-    | "square"
-    | "rounded"
-    | "dots"
-    | "classy"
-    | "classy-rounded"
-    | "extra-rounded";
-  frame: "none" | "rounded" | "scan-me";
+  | "square"
+  | "rounded"
+  | "dots"
+  | "classy"
+  | "classy-rounded"
+  | "extra-rounded";
+
+  frame:
+  | "none"
+  | "rounded"
+  | "scan-me"
+  | "badge"
+  | "pill-bottom"
+  | "ribbon"
+  | "polaroid"
+  | "browser"
+  | "ticket"
+  | "neon-glow";
+
   logo?: string;
+
+  useGradient?: boolean;
+  gradientType?: "linear" | "radial";
+  gradientColors?: [string, string];
+  gradientRotation?: number;
+
+  cornersSquareStyle?: "square" | "dot" | "extra-rounded";
+  cornersDotStyle?: "square" | "dot";
+
+  frameColor?: string;
+  frameText?: string;
+
+  logoSize?: number;
+  hideBackgroundDots?: boolean;
+
+  errorCorrectionLevel?: "L" | "M" | "Q" | "H";
+
   bannerColor?: string;
   accentColor?: string;
 }
