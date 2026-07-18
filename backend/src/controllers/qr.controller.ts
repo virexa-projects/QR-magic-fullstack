@@ -88,57 +88,92 @@ export const trackClick = catchAsync(async (req: Request, res: Response) => {
  * flow since the visitor never lands on an interstitial page to tap
  * anything — the redirect happens the instant the QR is scanned.
  */
-export const redirectByShortCode = catchAsync(async (req: Request, res: Response) => {
-  const { shortCode } = req.params;
-  const previewFallbackUrl = `${env.FRONTEND_URL}/${shortCode}`;
+export const redirectByShortCode = catchAsync(
+  async (req: Request, res: Response) => {
+    const { shortCode } = req.params;
 
-  const qr = await qrService.getQrByShortCode(shortCode).catch(() => null);
+    const previewFallbackUrl = `${env.FRONTEND_URL}/${shortCode}`;
 
-  if (!qr) {
-    return res.redirect(302, previewFallbackUrl);
+    console.log("shortCode:", shortCode);
+    console.log("previewFallbackUrl:", previewFallbackUrl);
+
+    const qr = await qrService.getQrByShortCode(shortCode).catch(() => null);
+
+    console.log("QR Found:", !!qr);
+
+    if (!qr) {
+      console.log("Redirect Reason: QR not found");
+      return res.redirect(302, previewFallbackUrl);
+    }
+
+    const isExpired = qr.expiresAt
+      ? new Date(qr.expiresAt) < new Date()
+      : false;
+
+    console.log("isExpired:", isExpired);
+
+    if (isExpired) {
+      console.log("Redirect Reason: QR expired");
+      return res.redirect(302, previewFallbackUrl);
+    }
+
+    const withinQuota = await hasScanQuotaRemaining(
+      qr.owner.toString()
+    );
+
+    console.log("withinQuota:", withinQuota);
+
+    if (!withinQuota) {
+      console.log("Redirect Reason: Monthly quota exceeded");
+      return res.redirect(302, previewFallbackUrl);
+    }
+
+    recordScan(qr._id, qr.owner, req).catch(console.error);
+    incrementScanUsage(qr.owner.toString()).catch(console.error);
+
+    if (qr.type === QRType.VCARD) {
+      const vcf = buildVCardString(qr.content || {});
+      const filename = `${(
+        qr.content?.fullName || "contact"
+      )
+        .trim()
+        .replace(/\s+/g, "_")}.vcf`;
+
+      res.setHeader(
+        "Content-Type",
+        "text/vcard; charset=utf-8"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+
+      return res.send(vcf);
+    }
+
+    if (qr.type === QRType.TEXT) {
+      const text =
+        qr.content?.text || qr.destination || "";
+
+      res.setHeader(
+        "Content-Type",
+        "text/plain; charset=utf-8"
+      );
+
+      return res.send(text);
+    }
+
+    const destinationHref =
+      qrService.buildDestinationHref(qr);
+
+    console.log(
+      "Redirecting to destination:",
+      destinationHref
+    );
+
+    return res.redirect(302, destinationHref);
   }
-
-  const isExpired = qr.expiresAt ? new Date(qr.expiresAt) < new Date() : false;
-  if (isExpired) {
-    return res.redirect(302, previewFallbackUrl);
-  }
-
-  // Enforce the owner's monthly scan quota. hasScanQuotaRemaining rolls
-  // the counter over automatically once a new calendar month starts, so
-  // limits reset with no scheduled job needed — just the next scan after
-  // the 1st triggers the reset.
-  const withinQuota = await hasScanQuotaRemaining(qr.owner.toString());
-
-  if (!withinQuota) {
-    // Quota exhausted for this month. The physical QR still needs to
-    // resolve to *something* for whoever scans it, so send them to the
-    // frontend fallback rather than the real destination, and don't
-    // record/count this hit.
-    return res.redirect(302, previewFallbackUrl);
-  }
-
-  // Fire-and-forget — the scan counts even if this write is still in
-  // flight when the redirect/response is sent.
-  recordScan(qr._id, qr.owner, req).catch(() => {});
-  incrementScanUsage(qr.owner.toString()).catch(() => {});
-
-  if (qr.type === QRType.VCARD) {
-    const vcf = buildVCardString(qr.content || {});
-    const filename = `${(qr.content?.fullName || "contact").trim().replace(/\s+/g, "_")}.vcf`;
-    res.setHeader("Content-Type", "text/vcard; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    return res.send(vcf);
-  }
-
-  if (qr.type === QRType.TEXT) {
-    const text = qr.content?.text || qr.destination || "";
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    return res.send(text);
-  }
-
-  const destinationHref = qrService.buildDestinationHref(qr);
-  return res.redirect(302, destinationHref);
-});
+);
 
 export const update = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();

@@ -8,7 +8,6 @@ import {
   AreaChart, Area, BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, YAxis,
   CartesianGrid, PieChart, Pie, Cell,
 } from "recharts";
-import { QRCodeCanvas } from "qrcode.react";
 import {
   ArrowLeft, TrendingUp, MapPin, Clock, Smartphone, Download, Copy,
   Edit3, ExternalLink, Share2, Users,
@@ -27,6 +26,8 @@ import {
   clearQrAnalytics,
 } from "@/store/slices/analyticsSlice";
 import GeoBreakdown from "@/components/qr/GeoBreakdown";
+import StyledQrPreview from "../dashboard/StyledQrPreview";
+import DownloadPopover from "../dashboard/DownloadPopover";
 
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
@@ -169,7 +170,11 @@ function QRDetailInner() {
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-start gap-4 min-w-0">
             <div className="bg-card rounded-2xl p-3 border border-border/60 shadow-card shrink-0">
-              <QRCodeCanvas value={qr.shortUrl} size={72} bgColor="#ffffff" fgColor="#000099" level="H" />
+              <StyledQrPreview
+                value={qr.shortUrl}
+                design={qr.design}
+                size={120}
+              />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -185,15 +190,27 @@ function QRDetailInner() {
               </div>
               <h1 className="text-2xl md:text-3xl font-bold font-heading text-foreground truncate">{qr.name}</h1>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                <span className="font-mono truncate max-w-md">{qr.shortUrl}</span>
+                <span className="font-medium text-foreground">Copy Link</span>
+
                 <button
-                  onClick={() => { navigator.clipboard.writeText(qr.shortUrl); toast.success("Copied"); }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(qr.shortUrl);
+                    toast.success("Copied");
+                  }}
                   className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                  title="Copy Link"
                 >
                   <Copy className="w-3 h-3" />
                 </button>
+
                 {qr.type === "url" && (
-                  <a href={qr.shortUrl} target="_blank" rel="noreferrer" className="p-1 rounded hover:bg-secondary">
+                  <a
+                    href={qr.shortUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1 rounded hover:bg-secondary"
+                    title="Open Link"
+                  >
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
@@ -209,7 +226,16 @@ function QRDetailInner() {
               <Share2 className="w-3.5 h-3.5 mr-1.5" /> Share
             </Button>
             <Button variant="outline" size="sm" className="rounded-full">
-              <Download className="w-3.5 h-3.5 mr-1.5" /> Download
+              <DownloadPopover
+                value={qr.shortUrl}
+                design={qr.design}
+                filename={qr.name}
+                trigger={
+                  <Button variant="outline" size="sm" className="rounded-full">
+                    <Download className="w-3.5 h-3.5 mr-1.5" /> Download
+                  </Button>
+                }
+              />
             </Button>
             <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-blue">
               <Link href="/dashboard/codes"><Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit</Link>

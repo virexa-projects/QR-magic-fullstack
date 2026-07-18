@@ -7,11 +7,20 @@ export interface IQRDesign {
   fgColor: string;
   bgColor: string;
   eyeColor?: string;
-  dotStyle: "square" | "rounded" | "dots";
-  frame: "none" | "rounded" | "scan-me";
+  dotStyle: string; // Lift the rigid enum restrictor to accept all front-end types
+  frame: string;
   logo?: string;
-  bannerColor?: string;
-  accentColor?: string;
+  useGradient?: boolean;
+  gradientType?: "linear" | "radial";
+  gradientColors?: string[];
+  gradientRotation?: number;
+  cornersSquareStyle?: string;
+  cornersDotStyle?: string;
+  frameColor?: string;
+  frameText?: string;
+  logoSize?: number;
+  hideBackgroundDots?: boolean;
+  errorCorrectionLevel?: "L" | "M" | "Q" | "H";
 }
 
 export interface IQRCode extends Document {
@@ -41,11 +50,20 @@ const designSchema = new Schema<IQRDesign>(
     fgColor: { type: String, default: "#000000" },
     bgColor: { type: String, default: "#FFFFFF" },
     eyeColor: { type: String },
-    dotStyle: { type: String, enum: ["square", "rounded", "dots"], default: "square" },
-    frame: { type: String, enum: ["none", "rounded", "scan-me"], default: "none" },
+    dotStyle: { type: String, default: "rounded" },
+    frame: { type: String, default: "none" },
     logo: { type: String },
-    bannerColor: { type: String },
-    accentColor: { type: String },
+    useGradient: { type: Boolean, default: false },
+    gradientType: { type: String, enum: ["linear", "radial"], default: "linear" },
+    gradientColors: { type: [String], default: ["#000099", "#7c3aed"] },
+    gradientRotation: { type: Number, default: 45 },
+    cornersSquareStyle: { type: String, default: "extra-rounded" },
+    cornersDotStyle: { type: String, default: "dot" },
+    frameColor: { type: String },
+    frameText: { type: String, default: "SCAN ME" },
+    logoSize: { type: Number, default: 0.22 },
+    hideBackgroundDots: { type: Boolean, default: true },
+    errorCorrectionLevel: { type: String, enum: ["L", "M", "Q", "H"], default: "H" },
   },
   { _id: false }
 );
