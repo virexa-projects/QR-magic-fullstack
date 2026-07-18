@@ -5,7 +5,14 @@ import { motion } from "framer-motion";
 import { useDispatch, useSelector } from "react-redux";
 import { Slot } from "@radix-ui/react-slot";
 import { AppDispatch, RootState } from "@/store";
-import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ExternalLink } from "lucide-react";
+import { Edit3, Pause, Play, Download, Search, Plus, Lock, BarChart3, Palette, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ExternalLink, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,9 +25,10 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import QRDesignDialog from "@/components/dashboard/QRDesignDialog";
 import DownloadPopover from "@/components/dashboard/DownloadPopover";
-import { fetchQrCodes, updateQr, deleteQr, QrCode, QrDesign, QrType, QrStatus } from "@/store/slices/qrSlice";
+import { fetchQrCodes, updateQr, deleteQr, QrCode, QrType, QrStatus, QrDesign } from "@/store/slices/qrSlice";
 import StyledQrPreview from "../dashboard/StyledQrPreview";
-
+import { QRDesign } from "@/lib/mockData";
+import QrPreviewDrawer from "@/components/dashboard/QrPreviewDrawer";
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
   text: "bg-secondary text-foreground",
@@ -33,7 +41,7 @@ const typeColors: Record<string, string> = {
   location: "bg-accent text-accent-foreground",
 };
 
-const defaultDesign: QrDesign = {
+const defaultDesign: QRDesign = {
   fgColor: "#000000",
   bgColor: "#FFFFFF",
   dotStyle: "square",
@@ -182,6 +190,7 @@ const FIELD_CONFIG: Record<QrType, { key: string; label: string; placeholder: st
 function CodesInner() {
   const dispatch = useDispatch<AppDispatch>();
   const { items, pagination, loading, actionLoading } = useSelector((state: RootState) => state.qr);
+  const [previewing, setPreviewing] = useState<QrCode | null>(null);
   const router = useRouter();
 
   const [query, setQuery] = useState("");
@@ -400,23 +409,16 @@ function CodesInner() {
 
                     className="border-t border-border/60 hover:bg-secondary/40 transition cursor-pointer group"
                   >
-                    <td className="px-5 py-3" onClick={stop}>
-                      <DownloadPopover
-                        value={q.shortUrl}
-                        design={design}
-                        filename={q.name}
-                        trigger={
-                          <button title="Click to download" className="block p-1.5 rounded-lg border border-border bg-white hover:border-primary/50 hover:shadow-sm transition">
-                            <StyledQrPreview
-                              value={q.shortUrl}
-                              design={design}
-                              size={90}
-                            />
-                          </button>
-                        }
-                      />
-                    </td>
 
+                    <td className="px-5 py-3" onClick={stop}>
+                      <button
+                        title="Click to preview"
+                        onClick={() => setPreviewing(q)}
+                        className="block p-1.5 rounded-lg border border-border bg-white hover:border-primary/50 hover:shadow-sm transition"
+                      >
+                        <StyledQrPreview value={q.shortUrl} design={design} size={90} />
+                      </button>
+                    </td>
                     <td className="px-3 py-3">
                       <Badge className={`${typeColors[q.type] ?? "bg-secondary text-foreground"} border-0 font-semibold uppercase text-[9px] mb-1`}>{q.type}</Badge>
                       <div className="font-semibold text-foreground group-hover:text-primary transition text-sm">{q.name}</div>
@@ -460,27 +462,76 @@ function CodesInner() {
                           design={design}
                           filename={q.name}
                           trigger={
-                            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs border-border hover:border-primary/50 hover:text-primary">
-                              <Download className="w-3.5 h-3.5" /> Download
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1.5 text-xs border-border hover:border-primary/50 hover:text-primary"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Download
                             </Button>
                           }
                         />
-                        <IconBtn title="Edit destination" onClick={() => openEdit(q)}><Edit3 className="w-3.5 h-3.5" /></IconBtn>
-                        <IconBtn title="Customize design" onClick={() => setDesigning(q)} accent><Palette className="w-3.5 h-3.5" /></IconBtn>
-                        <IconBtn title="Analytics" onClick={() => router.push(`/dashboard/codes/${q._id}`)}><BarChart3 className="w-3.5 h-3.5" /></IconBtn>
-                        <IconBtn asChild title="Preview Link">
-                          <Link
-                            href={q.shortUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </Link>
-                        </IconBtn>
-                        <IconBtn title={q.status === "active" ? "Pause" : "Resume"} onClick={() => toggleStatus(q)}>
-                          {q.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                        </IconBtn>
-                        <IconBtn title="Delete" onClick={() => deleteItem(q._id)} danger><Trash2 className="w-3.5 h-3.5" /></IconBtn>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => openEdit(q)}>
+                              <Edit3 className="mr-2 h-4 w-4" />
+                              Edit Destination
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem onClick={() => setDesigning(q)}>
+                              <Palette className="mr-2 h-4 w-4" />
+                              Customize Design
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => router.push(`/dashboard/codes/${q._id}`)}
+                            >
+                              <BarChart3 className="mr-2 h-4 w-4" />
+                              Analytics
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem asChild>
+                              <Link href={q.shortUrl} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="mr-2 h-4 w-4" />
+                                Open Link
+                              </Link>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem onClick={() => toggleStatus(q)}>
+                              {q.status === "active" ? (
+                                <>
+                                  <Pause className="mr-2 h-4 w-4" />
+                                  Pause
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="mr-2 h-4 w-4" />
+                                  Resume
+                                </>
+                              )}
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            <DropdownMenuItem
+                              onClick={() => deleteItem(q._id)}
+                              className="text-red-600 focus:text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+
                       </div>
                     </td>
                   </motion.tr>
@@ -584,7 +635,14 @@ function CodesInner() {
           onSave={saveDesign}
         />
       )}
+      <QrPreviewDrawer
+        open={!!previewing}
+        onOpenChange={(o) => !o && setPreviewing(null)}
+        qr={previewing}
+        design={previewing?.design ?? defaultDesign}
+      />
     </div>
+
   );
 }
 

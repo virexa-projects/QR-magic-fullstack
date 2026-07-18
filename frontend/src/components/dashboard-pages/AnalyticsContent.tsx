@@ -204,7 +204,7 @@ function AnalyticsInner() {
                   <SelectedIcon className="w-3.5 h-3.5 text-foreground" />
                 </div>
                 <div className="flex-1 text-left min-w-0">
-                  <div className="text-xs text-muted-foreground leading-none mb-0.5">Viewing</div>
+            
                   <div className="text-sm font-semibold text-foreground truncate">
                     {selected ? selected.name : "All QR codes"}
                   </div>

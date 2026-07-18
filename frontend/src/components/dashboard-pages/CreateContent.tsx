@@ -64,7 +64,7 @@ function smartDetect(text: string): { type: QRType; data: Record<string, string>
 const STEPS = [
   { n: 1, label: "Type" },
   { n: 2, label: "Content" },
-  { n: 3, label: "Design" },
+  { n: 3, label: "Create Qr" },
 ];
 
 function CreateInner() {

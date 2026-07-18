@@ -190,15 +190,27 @@ function QRDetailInner() {
               </div>
               <h1 className="text-2xl md:text-3xl font-bold font-heading text-foreground truncate">{qr.name}</h1>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                <span className="font-mono truncate max-w-md">{qr.shortUrl}</span>
+                <span className="font-medium text-foreground">Copy Link</span>
+
                 <button
-                  onClick={() => { navigator.clipboard.writeText(qr.shortUrl); toast.success("Copied"); }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(qr.shortUrl);
+                    toast.success("Copied");
+                  }}
                   className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                  title="Copy Link"
                 >
                   <Copy className="w-3 h-3" />
                 </button>
+
                 {qr.type === "url" && (
-                  <a href={qr.shortUrl} target="_blank" rel="noreferrer" className="p-1 rounded hover:bg-secondary">
+                  <a
+                    href={qr.shortUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1 rounded hover:bg-secondary"
+                    title="Open Link"
+                  >
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
