@@ -20,7 +20,13 @@ export interface QrDesign {
   fgColor: string;
   bgColor: string;
   eyeColor?: string;
-  dotStyle: "square" | "rounded" | "dots";
+  dotStyle:
+    | "square"
+    | "rounded"
+    | "dots"
+    | "classy"
+    | "classy-rounded"
+    | "extra-rounded";
   frame: "none" | "rounded" | "scan-me";
   logo?: string;
   bannerColor?: string;
