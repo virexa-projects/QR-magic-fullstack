@@ -1,7 +1,6 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
 import { AppDispatch, RootState } from "@/store";
 import { createQr } from "@/store/slices/qrSlice";
@@ -22,6 +21,9 @@ import SocialPicker from "@/components/dashboard/SocialPicker";
 import LabeledInputList from "@/components/dashboard/LabeledInputList";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import QrPreviewModal from "@/components/dashboard/QrPreviewModal";
+import { savePendingQrDraft } from "@/utils/pendingQrDraft";
+import StyledQrPreview from "../dashboard/StyledQrPreview";
+import type { QRDesign } from "@/lib/mockData";
 
 type QRType = "url" | "text" | "whatsapp" | "wifi" | "vcard" | "email" | "phone" | "sms" | "location";
 
@@ -67,6 +69,8 @@ const STEPS = [
 
 function CreateInner() {
   const router = useRouter();
+  const isAuthenticated = useSelector((s: RootState) => s.auth.isAuthenticated);
+
   const dispatch = useDispatch<AppDispatch>();
   const { actionLoading } = useSelector((state: RootState) => state.qr);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -93,7 +97,22 @@ function CreateInner() {
     bgColor: string;
     isDynamic: boolean;
     shortUrl?: string;
+    design?: QRDesign;
   } | null>(null);
+
+  // This form only exposes fg/bg color pickers, so the design object built
+  // here is a simple one (square dots, no frame). QRDesignDialog is where
+  // users pick dot style / corners / frame / gradient after creation.
+  const qrDesign: QRDesign = useMemo(
+    () => ({
+      fgColor,
+      bgColor,
+      eyeColor: fgColor,
+      dotStyle: "square",
+      frame: "none",
+    }),
+    [fgColor, bgColor]
+  );
 
   const getQRValue = useCallback((): string => {
     const d = formData;
@@ -133,27 +152,62 @@ function CreateInner() {
 
   const setField = (k: string, v: string) => setFormData((p) => ({ ...p, [k]: v }));
 
+  // StyledQrPreview (qr-code-styling) can render either a <canvas> or an
+  // <svg> depending on config, so handle both instead of assuming canvas.
   const handleDownload = () => {
-    const canvas = canvasRef.current?.querySelector("canvas");
-    if (!canvas) return;
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = `${qrName || `qrcode-${selectedType}`}.png`;
-    a.click();
-    toast.success("Downloaded");
+    const canvas = canvasRef.current?.querySelector("canvas") as HTMLCanvasElement | null;
+    if (canvas) {
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = `${qrName || `qrcode-${selectedType}`}.png`;
+      a.click();
+      toast.success("Downloaded");
+      return;
+    }
+
+    const svg = canvasRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (svg) {
+      const xml = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([xml], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${qrName || `qrcode-${selectedType}`}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Downloaded");
+      return;
+    }
+
+    toast.error("Nothing to download yet");
   };
 
   const handleCopy = async () => {
-    const canvas = canvasRef.current?.querySelector("canvas");
-    if (!canvas) return;
-    canvas.toBlob(async (blob) => {
-      if (blob) {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }
-    });
+    const canvas = canvasRef.current?.querySelector("canvas") as HTMLCanvasElement | null;
+    if (canvas) {
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }
+      });
+      return;
+    }
+
+    // Fall back to copying the SVG markup as text if no canvas was rendered.
+    const svg = canvasRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (svg) {
+      const xml = new XMLSerializer().serializeToString(svg);
+      await navigator.clipboard.writeText(xml);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      return;
+    }
+
+    toast.error("Nothing to copy yet");
   };
+
   const buildPayload = () => {
     const finalQrValue = getQRValue();
 
@@ -207,7 +261,16 @@ function CreateInner() {
   if (!qrName.trim()) {
     return toast.error("Add a name first");
   }
-
+  if (!isAuthenticated) {
+    savePendingQrDraft({
+      type: selectedType,
+      formData,
+      fgColor,
+      bgColor,
+    });
+    router.push("/login?redirect=/create&resume=true");
+    return;
+  }
   const payload = buildPayload();
 
   try {
@@ -222,6 +285,7 @@ function CreateInner() {
       bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
       isDynamic: qr?.isDynamic ?? payload.isDynamic,
       shortUrl: qr?.shortUrl,
+      design: qr?.design ?? payload.design,
     });
     setShowSuccessModal(true);
   } catch (error: any) {
@@ -393,9 +457,6 @@ function CreateInner() {
           <h1 className="text-xl md:text-2xl font-bold font-heading text-foreground">Create a QR code</h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Three steps. Live preview updates as you build.</p>
         </div>
-        <Button onClick={handleSmartPaste} variant="outline" size="sm" className="gap-1.5 self-start sm:self-auto border-lime/50 bg-lime-soft/40 hover:bg-lime-soft text-foreground">
-          <ClipboardPaste className="w-3.5 h-3.5" /> Smart paste
-        </Button>
       </div>
 
       {/* Stepper bar */}
@@ -475,6 +536,11 @@ function CreateInner() {
             {step === 2 && (
               <motion.div key="s2" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="space-y-4">
                 <div className="bg-card rounded-xl border border-border p-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-1">Name this QR</h3>
+                  <p className="text-[11px] text-muted-foreground mb-3">For your library — won't appear on the code.</p>
+                  <Input placeholder="e.g. Diwali landing page" value={qrName} onChange={(e) => setQrName(e.target.value)} className="h-10" />
+                </div>
+                <div className="bg-card rounded-xl border border-border p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h2 className="text-base font-bold text-foreground">Add your content</h2>
@@ -487,11 +553,7 @@ function CreateInner() {
                   <div className="space-y-3">{renderFields()}</div>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-1">Name this QR</h3>
-                  <p className="text-[11px] text-muted-foreground mb-3">For your library — won't appear on the code.</p>
-                  <Input placeholder="e.g. Diwali landing page" value={qrName} onChange={(e) => setQrName(e.target.value)} className="h-10" />
-                </div>
+                
               </motion.div>
             )}
 
@@ -602,7 +664,7 @@ function CreateInner() {
             ) : (
               <motion.div key="qr" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.15 }} className="bg-card rounded-xl border border-border p-5">
                 <div ref={canvasRef} className="flex items-center justify-center p-5 rounded-lg mb-4 border border-border" style={{ backgroundColor: bgColor }}>
-                  <QRCodeCanvas value={getQRValue()} size={200} fgColor={fgColor} bgColor={bgColor} level="H" includeMargin />
+                  <StyledQrPreview value={getQRValue()} size={200} design={qrDesign} />
                 </div>
                 <Button onClick={handleDownload} className="w-full h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold mb-2">
                   <Download className="w-4 h-4 mr-2" /> Download PNG
@@ -638,6 +700,7 @@ function CreateInner() {
         bgColor={savedQr?.bgColor ?? bgColor}
         isDynamic={savedQr?.isDynamic ?? isDynamic}
         shortUrl={savedQr?.shortUrl}
+        design={savedQr?.design ?? qrDesign}
       />
     </div>
   );

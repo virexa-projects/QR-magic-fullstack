@@ -2,7 +2,19 @@ import { motion } from "framer-motion";
 import { ArrowRight, Sparkles, ShieldCheck, Zap, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { QRCodeCanvas } from "qrcode.react";
+import StyledQrPreview from "./dashboard/StyledQrPreview";
+import type { QRDesign } from "@/lib/mockData";
+
+// Static — this QR never changes, so define it once outside the component
+// instead of rebuilding the object on every render.
+const HERO_QR_DESIGN: QRDesign = {
+  fgColor: "#000099",
+  bgColor: "#FFFFFF",
+  eyeColor: "#000099",
+  dotStyle: "square",
+  frame: "none",
+  errorCorrectionLevel: "H",
+};
 
 export default function HeroSection() {
   return (
@@ -103,7 +115,7 @@ export default function HeroSection() {
                     <span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-bold">●  ACTIVE</span>
                   </div>
                   <div className="bg-white p-3 rounded-xl">
-                    <QRCodeCanvas value="https://qrbharat.in" size={140} fgColor="#000099" bgColor="#FFFFFF" level="H" />
+                    <StyledQrPreview value="https://qrbharat.in" design={HERO_QR_DESIGN} size={140} />
                   </div>
                   <p className="mt-3 text-xs font-medium text-foreground text-center">qrbharat.in</p>
                 </motion.div>

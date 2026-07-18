@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { QRCodeCanvas } from "qrcode.react";
 import { useDispatch, useSelector } from "react-redux";
 import { Slot } from "@radix-ui/react-slot";
 import { AppDispatch, RootState } from "@/store";
@@ -20,6 +19,7 @@ import { toast } from "sonner";
 import QRDesignDialog from "@/components/dashboard/QRDesignDialog";
 import DownloadPopover from "@/components/dashboard/DownloadPopover";
 import { fetchQrCodes, updateQr, deleteQr, QrCode, QrDesign, QrType, QrStatus } from "@/store/slices/qrSlice";
+import StyledQrPreview from "../dashboard/StyledQrPreview";
 
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
@@ -407,17 +407,11 @@ function CodesInner() {
                         filename={q.name}
                         trigger={
                           <button title="Click to download" className="block p-1.5 rounded-lg border border-border bg-white hover:border-primary/50 hover:shadow-sm transition">
-                            <QRCodeCanvas value={q.shortUrl} size={48} fgColor={design.fgColor} bgColor={design.bgColor} level="M" includeMargin={false} imageSettings={
-                              design.logo
-                                ? {
-                                  src: design.logo,
-                                  height: 36,
-                                  width: 36,
-                                  excavate: true,
-                                  crossOrigin: "anonymous",
-                                }
-                                : undefined
-                            } />
+                            <StyledQrPreview
+                              value={q.shortUrl}
+                              design={design}
+                              size={90}
+                            />
                           </button>
                         }
                       />

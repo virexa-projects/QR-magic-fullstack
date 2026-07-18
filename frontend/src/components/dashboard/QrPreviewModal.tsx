@@ -2,12 +2,13 @@
 
 import { useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { QRCodeCanvas } from "qrcode.react";
 import {
     X, Check, Download, Copy, ExternalLink, Sparkles, Link as LinkIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import StyledQrPreview from "./StyledQrPreview";
+import type { QRDesign } from "@/lib/mockData";
 
 export interface QrPreviewModalProps {
     open: boolean;
@@ -21,6 +22,7 @@ export interface QrPreviewModalProps {
     bgColor: string;
     isDynamic: boolean;
     shortUrl?: string; // full short link for dynamic QR codes, e.g. https://yourapp.com/preview/abc123
+    design?: QRDesign; // full styled design (dots, corners, frame, gradient, logo, etc.)
 }
 
 export default function QrPreviewModal({
@@ -35,17 +37,49 @@ export default function QrPreviewModal({
     bgColor,
     isDynamic,
     shortUrl,
+    design,
 }: QrPreviewModalProps) {
     const canvasRef = useRef<HTMLDivElement>(null);
 
+    // StyledQrPreview needs a full QRDesign object. If the caller hasn't
+    // wired one through yet, fall back to a plain design built from the
+    // legacy fgColor/bgColor props so this still renders correctly.
+    const resolvedDesign: QRDesign =
+        design ?? {
+            fgColor,
+            bgColor,
+            dotStyle: "square",
+            frame: "none",
+        };
+
     const handleDownload = () => {
-        const canvas = canvasRef.current?.querySelector("canvas");
-        if (!canvas) return;
-        const a = document.createElement("a");
-        a.href = canvas.toDataURL("image/png");
-        a.download = `${qrName || "qrcode"}.png`;
-        a.click();
-        toast.success("Downloaded");
+        // StyledQrPreview (qr-code-styling) renders either a <canvas> or an
+        // <svg> depending on config, so handle both instead of assuming canvas.
+        const canvas = canvasRef.current?.querySelector("canvas") as HTMLCanvasElement | null;
+        if (canvas) {
+            const a = document.createElement("a");
+            a.href = canvas.toDataURL("image/png");
+            a.download = `${qrName || "qrcode"}.png`;
+            a.click();
+            toast.success("Downloaded");
+            return;
+        }
+
+        const svg = canvasRef.current?.querySelector("svg") as SVGSVGElement | null;
+        if (svg) {
+            const xml = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([xml], { type: "image/svg+xml" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${qrName || "qrcode"}.svg`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success("Downloaded");
+            return;
+        }
+
+        toast.error("Nothing to download yet");
     };
 
     const handleCopyLink = async () => {
@@ -96,7 +130,11 @@ export default function QrPreviewModal({
                                 className="flex items-center justify-center p-4 rounded-xl border border-border mx-auto w-fit"
                                 style={{ backgroundColor: bgColor }}
                             >
-                                <QRCodeCanvas value={qrValue} size={160} fgColor={fgColor} bgColor={bgColor} level="H" includeMargin />
+                                <StyledQrPreview
+                                    value={qrValue}
+                                    design={resolvedDesign}
+                                    size={160}
+                                />
                             </div>
 
                             <div className="mt-4 space-y-2 text-xs">

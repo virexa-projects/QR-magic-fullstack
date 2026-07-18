@@ -5,9 +5,69 @@ const designSchema = z.object({
   fgColor: z.string().optional(),
   bgColor: z.string().optional(),
   eyeColor: z.string().optional(),
-  dotStyle: z.enum(["square", "rounded", "dots"]).optional(),
-  frame: z.enum(["none", "rounded", "scan-me"]).optional(),
+  dotStyle: z.enum([
+    "square",
+    "dots",
+    "rounded",
+    "classy",
+    "classy-rounded",
+    "extra-rounded",
+  ]).optional(),
+
+  frame: z.enum([
+    "none",
+    "rounded",
+    "scan-me",
+    "badge",
+    "pill-bottom",
+    "ribbon",
+    "polaroid",
+    "browser",
+    "ticket",
+    "neon-glow",
+  ]).optional(),
+
   logo: z.string().optional(),
+
+  useGradient: z.boolean().optional(),
+
+  gradientType: z.enum([
+    "linear",
+    "radial",
+  ]).optional(),
+
+  gradientColors: z
+    .array(z.string())
+    .length(2)
+    .optional(),
+
+  gradientRotation: z.number().optional(),
+
+  cornersSquareStyle: z.enum([
+    "square",
+    "dot",
+    "extra-rounded",
+  ]).optional(),
+
+  cornersDotStyle: z.enum([
+    "square",
+    "dot",
+  ]).optional(),
+
+  frameColor: z.string().optional(),
+  frameText: z.string().optional(),
+
+  logoSize: z.number().min(0).max(1).optional(),
+
+  hideBackgroundDots: z.boolean().optional(),
+
+  errorCorrectionLevel: z.enum([
+    "L",
+    "M",
+    "Q",
+    "H",
+  ]).optional(),
+
   bannerColor: z.string().optional(),
   accentColor: z.string().optional(),
 });
@@ -54,7 +114,10 @@ export const createQrSchema = z.object({
 });
 
 export const updateQrSchema = z.object({
-  params: z.object({ id: z.string().min(1) }),
+  params: z.object({
+    id: z.string().min(1),
+  }),
+
   body: z.object({
     name: z.string().min(1).max(150).optional(),
     destination: z.string().min(1).optional(),

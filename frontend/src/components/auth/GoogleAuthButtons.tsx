@@ -35,17 +35,19 @@ export function GoogleAuthButtons({
   });
 
   return (
-    <div className="w-full flex justify-center">
-      <GoogleLogin
-        onSuccess={handleCredential}
-        onError={() => {}}
-        useOneTap={oneTap}
-        theme="outline"
-        size="large"
-        shape="pill"
-        width="320"
-        text={mode === "signup" ? "signup_with" : "signin_with"}
-      />
-    </div>
+  <div className="mt-4 w-full">
+  <div className="w-full flex justify-center">
+    <GoogleLogin
+      onSuccess={handleCredential}
+      onError={() => {}}
+      useOneTap={oneTap}
+      theme="outline"
+      size="large"
+      shape="pill"
+      width={420} // match your form width
+      text={mode === "signup" ? "signup_with" : "signin_with"}
+    />
+  </div>
+</div>
   );
 }
