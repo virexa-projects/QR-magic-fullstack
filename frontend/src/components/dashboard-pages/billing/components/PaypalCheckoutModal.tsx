@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import { Loader2, X, AlertTriangle } from "lucide-react";
 import { fetchPaypalQuote, type PaypalQuote } from "@/store/slices/Billingslice";
-import type { ApiPlan, AppDispatch } from "./billing.types";
+import type { ApiPlan, AppDispatch } from "../billing.types";
 import { loadPaypalScript } from "./paypalSdkLoader";
 
 // PayPal checkout modal. Fetches a converted-price quote up front so
@@ -11,11 +11,10 @@ import { loadPaypalScript } from "./paypalSdkLoader";
 //
 // NOTE: this modal only handles getting the buyer TO an approved
 // PayPal order — it does not own any post-approval result state.
-// That lives in BillingInner (paypalResult), because the checkout
-// modal itself gets unmounted (onApprove closes it) right as capture
-// kicks off, so any state stored in here would vanish at exactly the
-// moment it'd be needed.
-export function PaypalCheckoutModal({
+// That lives in usePaypalCheckout, because this modal gets unmounted
+// (onApprove closes it) right as capture kicks off, so any state
+// stored in here would vanish at exactly the moment it'd be needed.
+function PaypalCheckoutModalBase({
   plan,
   onClose,
   onCreateOrder,
@@ -177,3 +176,5 @@ export function PaypalCheckoutModal({
     </div>
   );
 }
+
+export const PaypalCheckoutModal = memo(PaypalCheckoutModalBase);

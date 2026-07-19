@@ -60,8 +60,8 @@ export const freeUsageDefaults: SubscriptionUsage = {
   dynamicQrLimit: 5,
   qrLimit: 20,
   scanLimitPerMonth: 1000,
-  scansUsed: 0,           // NEW
-  scansResetAt: undefined, // NEW
+  scansUsed: 0,
+  scansResetAt: undefined,
 };
 
 // --- Plan tier ranking ---------------------------------------------------

@@ -11,7 +11,6 @@ import { Slider } from "@/components/ui/slider";
 import { Sparkles, Wand2, Shuffle, AlertTriangle, CheckCircle2, Zap, Download } from "lucide-react";
 import type { QRDesign } from "@/lib/mockData";
 import { calculateQrStrength, generateHarmoniousGradient, randomHex } from "@/lib/qrDesignUtils";
-import {updateQr} from '@/store/slices/qrSlice'
 import { useDispatch } from "react-redux";
 interface Props {
   open: boolean;
@@ -394,10 +393,6 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
                     <div className="space-y-1.5">
                       <Label className="text-[11px] text-muted-foreground">Logo size ({Math.round((design.logoSize ?? 0.22) * 100)}%)</Label>
                       <Slider min={10} max={40} step={1} value={[(design.logoSize ?? 0.22) * 100]} onValueChange={([v]) => update("logoSize", v / 100)} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-medium">Clear background behind logo</Label>
-                      <input type="checkbox" checked={design.hideBackgroundDots ?? true} onChange={(e) => update("hideBackgroundDots", e.target.checked)} className="accent-primary w-4 h-4" />
                     </div>
                   </>
                 )}

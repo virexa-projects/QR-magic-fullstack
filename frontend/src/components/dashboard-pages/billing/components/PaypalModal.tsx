@@ -1,5 +1,5 @@
 import { CheckCircle2, XCircle, Loader2, Copy, Check } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 export type PaypalResult =
@@ -65,7 +65,7 @@ function CopyableId({ value }: { value: string }) {
   );
 }
 
-export default function PaypalModal({
+function PaypalModalBase({
   result,
   loading = false,
   onClose,
@@ -216,3 +216,5 @@ export default function PaypalModal({
     </div>
   );
 }
+
+export default memo(PaypalModalBase);

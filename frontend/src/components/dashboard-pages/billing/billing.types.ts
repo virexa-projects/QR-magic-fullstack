@@ -26,8 +26,8 @@ export interface SubscriptionUsage {
   dynamicQrLimit: number;
   qrLimit: number;
   scanLimitPerMonth: number;
-   scansUsed?: number;    
-  scansResetAt?: string;    
+  scansUsed?: number;
+  scansResetAt?: string;
 }
 
 // Surfaced by getActiveSubscription when a downgrade is pending —

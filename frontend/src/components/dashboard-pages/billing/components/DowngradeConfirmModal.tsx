@@ -1,9 +1,10 @@
+import { memo } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ApiPlan } from "./billing.types";
-import { formatDate } from "./billing.utils";
+import type { ApiPlan } from "../billing.types";
+import { formatDate } from "../billing.utils";
 
-export function DowngradeConfirmModal({
+function DowngradeConfirmModalBase({
   fromName,
   toPlan,
   endDate,
@@ -67,3 +68,5 @@ export function DowngradeConfirmModal({
     </div>
   );
 }
+
+export const DowngradeConfirmModal = memo(DowngradeConfirmModalBase);
