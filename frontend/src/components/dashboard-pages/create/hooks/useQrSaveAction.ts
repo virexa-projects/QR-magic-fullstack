@@ -27,17 +27,6 @@ interface UseQrSaveActionArgs {
   validateAndReport: (value: any) => boolean;
   setStep: (n: 1 | 2 | 3) => void;
 }
-
-/** Data shape passed by the restore hook directly, bypassing stale closure. */
-export interface DraftSaveArgs {
-  type: QrTypeId;
-  def: QrTypeDefinition;
-  formData: any;
-  qrName: string;
-  isDynamic: boolean;
-  design: QRDesign;
-}
-
 /**
  * Owns the entire save pipeline: name check -> validate -> auth gate ->
  * upload pending Files to Cloudinary -> encode -> dispatch createQr ->
@@ -48,9 +37,6 @@ export interface DraftSaveArgs {
  *
  * On success always calls clearPendingQrDraft() so a restored draft is
  * not re-triggered on the next visit.
- *
- * Also exposes handleSaveWithDraft() which accepts all data explicitly —
- * used by the restore hook to avoid stale React state closures.
  */
 export function useQrSaveAction({
   isAuthenticated,
@@ -177,34 +163,10 @@ export function useQrSaveAction({
     router,
   ]);
 
-  /**
-   * Save using explicit draft data — called by useQrDraftRestore to avoid
-   * stale React state closures after the builder setters have been called
-   * but before React has committed the new state to the closure.
-   * Skips name/validation checks (draft was already validated on first save).
-   */
-  const handleSaveWithDraft = useCallback(
-    async (draft: DraftSaveArgs) => {
-      try {
-        await executeSave(draft);
-      } catch (error: any) {
-        console.error("Draft restore save failed:", error);
-        toast.error(
-          typeof error === "string"
-            ? error
-            : "Couldn't save your draft — try saving manually"
-        );
-        throw error; // re-throw so restore hook can run cleanup
-      }
-    },
-    [executeSave]
-  );
-
   return {
     savedQr,
     showSuccessModal,
     setShowSuccessModal,
     handleSave,
-    handleSaveWithDraft,
   };
 }

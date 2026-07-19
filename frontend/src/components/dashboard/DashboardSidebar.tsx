@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { logoutUser, UserRole } from "@/store/slices/authSlice";
 import { toast } from "sonner";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 
 interface SidebarItem {
   title: string;
@@ -21,11 +22,11 @@ interface SidebarItem {
 }
 
 const items: SidebarItem[] = [
-  { title: "Overview", url: "/dashboard", icon: LayoutDashboard, end: true, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN,UserRole.USER] },
+  { title: "Overview", url: "/dashboard", icon: LayoutDashboard, end: true, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
   { title: "Create QR", url: "/dashboard/create", icon: Plus, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
   { title: "My QR Codes", url: "/dashboard/codes", icon: QrCode, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
   { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
-  { title: "Billing", url: "/dashboard/billing", icon: CreditCard, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN,UserRole.USER] },
+  { title: "Billing", url: "/dashboard/billing", icon: CreditCard, allowedRoles: [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER] },
 ];
 
 export function DashboardSidebar() {
@@ -51,7 +52,16 @@ export function DashboardSidebar() {
   });
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border"
+      style={
+        {
+          "--sidebar-width": "15rem",      // expanded (240px)
+          "--sidebar-width-icon": "3.75rem", // collapsed (60px)
+        } as React.CSSProperties
+      }
+    >
       <SidebarHeader className="p-4 group-data-[collapsible=icon]:px-1.5 border-b border-sidebar-border">
         <div className="flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center">
           <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-blue flex items-center justify-center shadow-blue">
@@ -75,17 +85,30 @@ export function DashboardSidebar() {
                 const active = item.end ? pathname === item.url : (pathname ?? "").startsWith(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={active}>
-                      <Link
-                        href={item.url}
-                        className={`flex items-center gap-3 rounded-lg ${
-                          active ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold" : "hover:bg-sidebar-accent/50"
-                        }`}
-                      >
-                        <item.icon className="w-4 h-4 shrink-0" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </Link>
-                    </SidebarMenuButton>
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SidebarMenuButton asChild isActive={active}>
+                            <Link
+                              href={item.url}
+                              className={`flex items-center gap-3 rounded-lg ${active
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                                  : "hover:bg-sidebar-accent/50"
+                                }`}
+                            >
+                              <item.icon className="w-4 h-4 shrink-0" />
+                              {!collapsed && <span>{item.title}</span>}
+                            </Link>
+                          </SidebarMenuButton>
+                        </TooltipTrigger>
+
+                        {collapsed && (
+                          <TooltipContent side="right">
+                            {item.title}
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
                   </SidebarMenuItem>
                 );
               })}

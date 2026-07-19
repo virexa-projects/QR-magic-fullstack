@@ -47,6 +47,25 @@ export function useQrBuilder() {
     setQrName("");
   }, [selectedType]);
 
+  const restoreDraft = useCallback((draft: {
+    type: QrTypeId;
+    formData: any;
+    qrName: string;
+    isDynamic: boolean;
+    design: QRDesign;
+    fgColor?: string;
+    bgColor?: string;
+  }) => {
+    setSelectedType(draft.type);
+    setFormValueState(draft.formData);
+    setQrName(draft.qrName);
+    setIsDynamic(draft.isDynamic);
+    setQrDesign(draft.design);
+    if (draft.fgColor) setFgColor(draft.fgColor);
+    if (draft.bgColor) setBgColor(draft.bgColor);
+    setStep(2);
+  }, []);
+
   return {
     def,
     step,
@@ -69,5 +88,6 @@ export function useQrBuilder() {
     selectType,
     resetForm,
     resetCanvas,
+    restoreDraft,
   };
 }

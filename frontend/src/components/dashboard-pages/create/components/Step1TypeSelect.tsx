@@ -2,6 +2,7 @@
 "use client";
 import { memo } from "react";
 import { motion } from "framer-motion";
+import { LayoutGrid } from "lucide-react";
 import { QrTypeGrid } from "../lazy";
 import type { QrTypeId } from "@/lib/qr-types/schema";
 
@@ -12,7 +13,13 @@ interface Props {
 
 function Step1TypeSelectBase({ selectedType, onSelect }: Props) {
   return (
-    <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }}>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
+
       <QrTypeGrid selected={selectedType} onSelect={onSelect} />
     </motion.div>
   );

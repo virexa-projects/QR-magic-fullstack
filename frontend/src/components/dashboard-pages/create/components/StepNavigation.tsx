@@ -1,7 +1,8 @@
 // components/dashboard-pages/create/components/StepNavigation.tsx
 "use client";
 import { memo } from "react";
-import { ArrowLeft, ArrowRight, Save } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowLeft, ArrowRight, Save, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { STEPS } from "../create.constants";
 import type { StepNumber } from "../create.types";
@@ -15,31 +16,78 @@ interface Props {
 }
 
 function StepNavigationBase({ step, actionLoading, onBack, onNext, onSave }: Props) {
-  return (
-    <div className="sticky bottom-0 z-30 mt-6 -mx-4 sm:mx-0 px-4 sm:px-5 py-3 flex items-center gap-3 bg-card/95 backdrop-blur border-t border-border sm:border sm:rounded-xl shadow-[0_-4px_16px_-8px_rgba(0,0,0,0.08)] sm:shadow-none">
-      <Button
-        variant="outline"
-        onClick={onBack}
-        disabled={step === 1}
-        className="flex-1 sm:flex-none h-11 gap-1.5 justify-center text-foreground disabled:opacity-30"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back
-      </Button>
+  const isFirst = step === 1;
+  const isLast = step === 3;
 
-      <div className="hidden sm:block flex-1 text-center text-[11px] font-medium text-muted-foreground">
-        Step {step} of 3 — {STEPS[step - 1].label}
+  return (
+    <motion.div
+      layout
+      className="mb-4 flex items-center gap-3 bg-card border border-border p-3 rounded-2xl shadow-sm"
+    >
+      {/* ── Back button ─────────────────────────────────────── */}
+      <AnimatePresence>
+        {!isFirst && (
+          <motion.div
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -12 }}
+            transition={{ duration: 0.15 }}
+          >
+            <Button
+              variant="outline"
+              onClick={onBack}
+              className="h-11 gap-2 px-5 rounded-xl text-foreground border-border hover:bg-secondary/80"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Center: step indicator ───────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex items-center gap-1.5">
+          {STEPS.map((s) => (
+            <div
+              key={s.n}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                s.n === step
+                  ? "w-8 bg-primary"
+                  : s.n < step
+                  ? "w-4 bg-lime"
+                  : "w-4 bg-border"
+              }`}
+            />
+          ))}
+        </div>
       </div>
 
-      {step < 3 ? (
-        <Button onClick={onNext} className="flex-1 sm:flex-none h-11 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-6 justify-center">
-          Next <ArrowRight className="w-4 h-4" />
+      {/* ── Primary action ──────────────────────────────────── */}
+      {isLast ? (
+        <Button
+          onClick={onSave}
+          disabled={actionLoading}
+          className="h-11 gap-2 px-6 rounded-xl font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_2px_16px_rgba(0,0,153,0.25)] transition-shadow hover:shadow-[0_4px_24px_rgba(0,0,153,0.35)]"
+        >
+          {actionLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Saving…
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" /> Save to Library
+            </>
+          )}
         </Button>
       ) : (
-        <Button onClick={onSave} disabled={actionLoading} className="w-1/4 h-10 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
-          <Save className="w-4 h-4 mr-2" /> {actionLoading ? "Saving…" : "Save to library"}
+        <Button
+          onClick={onNext}
+          className="h-11 gap-2 px-6 rounded-xl font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_2px_16px_rgba(0,0,153,0.25)] transition-shadow hover:shadow-[0_4px_24px_rgba(0,0,153,0.35)]"
+        >
+          Continue <ArrowRight className="w-4 h-4" />
         </Button>
       )}
-    </div>
+    </motion.div>
   );
 }
 

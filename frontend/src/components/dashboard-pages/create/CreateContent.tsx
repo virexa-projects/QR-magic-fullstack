@@ -57,6 +57,7 @@ function CreateInner() {
     selectType,
     resetForm,
     resetCanvas,
+    restoreDraft,
   } = builder;
 
   const { errors, validateAndReport, onChangeClearIfFixed, resetErrors } =
@@ -85,7 +86,7 @@ function CreateInner() {
     toast.success("Draft cleared. Starting fresh.");
   }, [resetForm]);
 
-  const { savedQr, showSuccessModal, setShowSuccessModal, handleSave, handleSaveWithDraft } =
+  const { savedQr, showSuccessModal, setShowSuccessModal, handleSave } =
     useQrSaveAction({
       isAuthenticated,
       selectedType,
@@ -99,18 +100,10 @@ function CreateInner() {
       setStep,
     });
 
-  // ── Draft restore — auto-saves to DB after restoring builder state ──────
+  // ── Draft restore — restores builder state ──────
   useQrDraftRestore({
     isAuthenticated,
-    selectType,
-    setFormValue,
-    setQrName,
-    setIsDynamic,
-    setQrDesign,
-    setStep,
-    setFgColor,
-    setBgColor,
-    handleSaveWithDraft,
+    restoreDraft,
   });
 
   // ── Stable handlers ──────────────────────────────────────────────────────
@@ -172,14 +165,7 @@ function CreateInner() {
     <>
       <div className="max-w-[1400px] mx-auto pb-20">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold font-heading text-foreground">
-              Create a QR code
-            </h1>
-            <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-              Three steps. Live preview updates as you build.
-            </p>
-          </div>
+        
           {hasDraft && (
             <button
               onClick={handleDiscardDraft}
@@ -193,7 +179,15 @@ function CreateInner() {
         <StepProgress step={step} onJump={onJumpStep} />
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-5">
-          <div>
+          <div className="space-y-5">
+            <StepNavigation
+              step={step}
+              actionLoading={actionLoading}
+              onBack={onBack}
+              onNext={onNext}
+              onSave={handleSave}
+            />
+
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <Step1TypeSelect
@@ -236,14 +230,6 @@ function CreateInner() {
                 />
               )}
             </AnimatePresence>
-
-            <StepNavigation
-              step={step}
-              actionLoading={actionLoading}
-              onBack={onBack}
-              onNext={onNext}
-              onSave={handleSave}
-            />
           </div>
 
           <PreviewPanel

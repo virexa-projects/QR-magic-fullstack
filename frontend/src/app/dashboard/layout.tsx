@@ -47,7 +47,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <NotificationBell />
           </header>
 
-          <main className="flex-1 p-4 md:p-8 overflow-x-hidden">
+          <main className="flex-1  overflow-x-hidden">
             {children}
           </main>
         </div>
