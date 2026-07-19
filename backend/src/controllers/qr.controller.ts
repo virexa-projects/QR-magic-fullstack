@@ -92,68 +92,73 @@ export const redirectByShortCode = catchAsync(
   async (req: Request, res: Response) => {
     const { shortCode } = req.params;
 
-    const previewFallbackUrl = `${env.FRONTEND_URL}/${shortCode}`;
+    const fallbackUrl = `${env.FRONTEND_URL}/${shortCode}`;
 
-    console.log("shortCode:", shortCode);
-    console.log("previewFallbackUrl:", previewFallbackUrl);
+    console.log("====================================");
+    console.log("QR Redirect Request");
+    console.log("Short Code:", shortCode);
 
     const qr = await qrService.getQrByShortCode(shortCode).catch(() => null);
 
-    console.log("QR Found:", !!qr);
-
     if (!qr) {
-      console.log("Redirect Reason: QR not found");
-      return res.redirect(302, previewFallbackUrl);
+      console.log("QR not found");
+      return res.redirect(302, fallbackUrl);
     }
 
+    console.log("QR Type:", qr.type);
+
+    // Check expired
     const isExpired = qr.expiresAt
       ? new Date(qr.expiresAt) < new Date()
       : false;
 
-    console.log("isExpired:", isExpired);
-
     if (isExpired) {
-      console.log("Redirect Reason: QR expired");
-      return res.redirect(302, previewFallbackUrl);
+      console.log("QR Expired");
+      return res.redirect(302, fallbackUrl);
     }
 
+    // Monthly scan quota
     const withinQuota = await hasScanQuotaRemaining(
       qr.owner.toString()
     );
 
-    console.log("withinQuota:", withinQuota);
-
     if (!withinQuota) {
-      console.log("Redirect Reason: Monthly quota exceeded");
-      return res.redirect(302, previewFallbackUrl);
+      console.log("Monthly scan limit exceeded");
+      return res.redirect(302, fallbackUrl);
     }
 
+    // Record scan
     recordScan(qr._id, qr.owner, req).catch(console.error);
     incrementScanUsage(qr.owner.toString()).catch(console.error);
 
-    if (qr.type === QRType.VCARD) {
-      const vcf = buildVCardString(qr.content || {});
-      const filename = `${(
-        qr.content?.fullName || "contact"
-      )
-        .trim()
-        .replace(/\s+/g, "_")}.vcf`;
+    /**
+     * Preview QR Types
+     */
+    const previewTypes: QRType[] = [
+      QRType.VCARD,
+      QRType.IMAGE,
+      QRType.VIDEO,
+      QRType.AUDIO,
+      QRType.SOCIAL,
+      QRType.EVENT,
+      QRType.FEEDBACK,
+      QRType.MENU,
+      QRType.PLAYLIST,
+    ];
 
-      res.setHeader(
-        "Content-Type",
-        "text/vcard; charset=utf-8"
-      );
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${filename}"`
-      );
+    if (previewTypes.includes(qr.type)) {
+      const previewUrl = `${env.FRONTEND_URL}/preview/${shortCode}`;
 
-      return res.send(vcf);
+      console.log("Preview Redirect:", previewUrl);
+
+      return res.redirect(302, previewUrl);
     }
 
+    /**
+     * TEXT QR
+     */
     if (qr.type === QRType.TEXT) {
-      const text =
-        qr.content?.text || qr.destination || "";
+      const text = qr.content?.text || qr.destination || "";
 
       res.setHeader(
         "Content-Type",
@@ -163,13 +168,12 @@ export const redirectByShortCode = catchAsync(
       return res.send(text);
     }
 
-    const destinationHref =
-      qrService.buildDestinationHref(qr);
+    /**
+     * All remaining QR types
+     */
+    const destinationHref = qrService.buildDestinationHref(qr);
 
-    console.log(
-      "Redirecting to destination:",
-      destinationHref
-    );
+    console.log("Destination Redirect:", destinationHref);
 
     return res.redirect(302, destinationHref);
   }

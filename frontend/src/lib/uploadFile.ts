@@ -1,14 +1,4 @@
 // lib/uploadFile.ts
-//
-// Real binary file upload — sends the actual File object as multipart
-// FormData (not a base64 data-URL) so it lands on the multer middleware
-// as req.file, same as the rest of the QRBharat upload pipeline (logo,
-// avatar, menu images, etc).
-//
-// Usage:
-//   const url = await uploadFile(file, "vcard-avatars");
-//   set("avatarUrl", url);
-
 export interface UploadResult {
   url: string;
   fileName?: string;
@@ -16,16 +6,20 @@ export interface UploadResult {
   mimeType?: string;
 }
 
-const MAX_FILE_SIZE_MB = 5;
+// Global default cap — applies to every upload (images, audio, video)
+// unless a caller explicitly passes a different maxSizeMb.
+const MAX_FILE_SIZE_MB = 10;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"];
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api/v1";
 
 export class UploadError extends Error {}
 
 /**
- * Uploads a single File/Blob as multipart/form-data to the backend upload
- * endpoint and returns the hosted URL. Do NOT set a Content-Type header
- * manually — the browser needs to set its own multipart boundary or the
- * multer middleware will fail to parse the body.
+ * Uploads a single File/Blob as multipart/form-data to the Cloudinary
+ * route and returns the hosted URL. `accept` defaults to images only —
+ * pass an explicit list for audio/video (see uploadPendingFiles.ts) so
+ * non-image types aren't rejected by the type check. `maxSizeMb`
+ * defaults to the global 10MB cap and applies to every file type.
  */
 export async function uploadFile(
   file: File,
@@ -43,17 +37,13 @@ export async function uploadFile(
   }
 
   const formData = new FormData();
-  // Field name "file" must match the multer field name on the backend,
-  // e.g. upload.single("file").
   formData.append("file", file, file.name);
   formData.append("folder", folder);
 
-  // Use XHR instead of fetch so we can report real upload progress for
-  // the loading UI (fetch has no upload-progress event).
   const result = await new Promise<UploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/uploads");
-    xhr.withCredentials = true; // send auth cookie/session
+    xhr.open("POST", `${BASE_URL}/cloudinary`);
+    xhr.withCredentials = true; // sends the accessToken cookie for `authenticate`
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && opts.onProgress) {
@@ -65,9 +55,9 @@ export async function uploadFile(
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
-          const url = data?.url ?? data?.data?.url;
+          const url = data?.data?.url ?? data?.url;
           if (!url) throw new Error("No URL in upload response");
-          resolve({ url, fileName: data?.fileName, size: data?.size, mimeType: data?.mimeType });
+          resolve({ url, fileName: data?.data?.fileName, size: data?.data?.size, mimeType: data?.data?.mimeType });
         } catch {
           reject(new UploadError("Upload succeeded but response was malformed"));
         }

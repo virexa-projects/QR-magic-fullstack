@@ -21,6 +21,32 @@ const labeledEmail = z.object({
   value: z.string().trim().min(1, "Required").email("Enter a valid email"),
 });
 
+/**
+ * Some fields (avatarUrl, images[].url, audioUrl, coverImage, videoUrl,
+ * logoUrl, menu item image) hold a raw File while the user is still
+ * editing — the real upload to Cloudinary only happens in
+ * CreateContent.tsx's handleSave, via uploadPendingFiles(). Until then
+ * these fields are NOT strings, so a plain z.string() check fails with
+ * "Expected string, received object". This accepts both, so validation
+ * passes at every step (including the Step 2 -> 3 transition); the field
+ * is guaranteed to be a real URL string by the time it reaches the
+ * backend, since uploadPendingFiles() always runs before the payload is
+ * built in handleSave.
+ */
+const fileOrString = z.custom<string | File>((val) => {
+  if (typeof val === "string") return true;
+  if (typeof File !== "undefined" && val instanceof File) return true;
+  return false;
+}, { message: "Invalid file" });
+
+/** Same as fileOrString, but rejects an empty string (i.e. still "required"). */
+const requiredFileOrString = fileOrString.refine(
+  (val) =>
+    (typeof File !== "undefined" && val instanceof File) ||
+    (typeof val === "string" && val.trim().length > 0),
+  { message: "This file is required" }
+);
+
 // ----------------------------------------------------------------------
 // Classic types
 // ----------------------------------------------------------------------
@@ -123,7 +149,7 @@ export const vcardSchema = z
     role: z.string().optional().default(""),
     company: z.string().optional().default(""),
     bio: z.string().max(280, "Keep bio under 280 characters").optional().default(""),
-    avatarUrl: z.string().optional(),
+    avatarUrl: fileOrString.optional(),
     phones: z.array(labeledValue).default([]),
     emails: z.array(labeledEmail).default([]),
     socials: z.array(labeledValue).default([]),
@@ -162,7 +188,7 @@ export const defaultVCardValue: VCardValue = {
 // ----------------------------------------------------------------------
 export const imageSchema = z.object({
   images: z
-    .array(z.object({ url: z.string().min(1, "Image is required"), caption: z.string().optional() }))
+    .array(z.object({ url: requiredFileOrString, caption: z.string().optional() }))
     .min(1, "Add at least one image"),
   title: z.string().optional().default(""),
   layout: z.enum(["grid", "carousel", "stack"]).default("grid"),
@@ -172,22 +198,24 @@ export type ImageValue = z.infer<typeof imageSchema>;
 export const videoSchema = z
   .object({
     source: z.enum(["youtube", "vimeo", "upload"]),
-    videoUrl: z.string().trim().min(1, "Add a video URL or upload a file"),
+    videoUrl: requiredFileOrString,
     title: z.string().optional().default(""),
     autoplay: z.boolean().default(false),
     showControls: z.boolean().default(true),
   })
-  .refine((d) => d.source === "upload" || /^https?:\/\//i.test(d.videoUrl), {
-    message: "Enter a valid URL starting with https://",
-    path: ["videoUrl"],
-  });
+  .refine(
+    (d) =>
+      d.source === "upload" ||
+      (typeof d.videoUrl === "string" && /^https?:\/\//i.test(d.videoUrl)),
+    { message: "Enter a valid URL starting with https://", path: ["videoUrl"] }
+  );
 export type VideoValue = z.infer<typeof videoSchema>;
 
 export const audioSchema = z.object({
   title: z.string().trim().min(1, "Title is required"),
   artist: z.string().optional().default(""),
-  audioUrl: z.string().trim().min(1, "Upload an audio file"),
-  coverImage: z.string().optional(),
+  audioUrl: requiredFileOrString,
+  coverImage: fileOrString.optional(),
   autoplay: z.boolean().default(false),
 });
 export type AudioValue = z.infer<typeof audioSchema>;
@@ -200,7 +228,7 @@ export const socialProfileSchema = z.object({
 export const socialSchema = z.object({
   displayName: z.string().trim().min(1, "Display name is required"),
   bio: z.string().max(280, "Keep bio under 280 characters").optional().default(""),
-  avatarUrl: z.string().optional(),
+  avatarUrl: fileOrString.optional(),
   profiles: z.array(socialProfileSchema).min(1, "Add at least one social link"),
   theme: z.enum(["light", "dark", "gradient"]).default("light"),
 });
@@ -247,7 +275,7 @@ export const menuItemSchema = z.object({
   name: z.string().trim().min(1, "Item name is required"),
   price: z.string().trim().min(1, "Price is required"),
   description: z.string().optional(),
-  image: z.string().optional(),
+  image: fileOrString.optional(),
   tags: z.array(z.string()).optional(),
 });
 export const menuCategorySchema = z.object({
@@ -257,7 +285,7 @@ export const menuCategorySchema = z.object({
 });
 export const menuSchema = z.object({
   restaurantName: z.string().trim().min(1, "Restaurant name is required"),
-  logoUrl: z.string().optional(),
+  logoUrl: fileOrString.optional(),
   currency: z.string().trim().min(1, "Currency symbol is required"),
   categories: z.array(menuCategorySchema).min(1, "Add at least one category"),
   theme: z.enum(["classic", "modern", "rustic"]).default("classic"),
@@ -270,7 +298,7 @@ export const playlistSchema = z.object({
   platform: z.enum(["spotify", "apple-music", "youtube", "soundcloud"]),
   playlistUrl: z.string().trim().min(1, "Playlist URL is required").url("Enter a valid URL"),
   title: z.string().optional().default(""),
-  coverImage: z.string().optional(),
+  coverImage: fileOrString.optional(),
   trackCount: z.number().optional(),
 });
 export type PlaylistValue = z.infer<typeof playlistSchema>;

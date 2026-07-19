@@ -7,6 +7,7 @@ import {
   Globe, User, CreditCard, MessageSquare, Wifi,
   Mail, Phone, MapPin, FileText, MessageCircle,
   ExternalLink, Lock, Link2, ShieldCheck, ArrowRight,
+  Star, CalendarPlus, Clock, Users, UtensilsCrossed,
 } from "lucide-react";
 import { FaLinkedinIn, FaInstagram, FaXTwitter, FaYoutube, FaGithub, FaFacebookF, FaTiktok } from "react-icons/fa6";
 import { fetchQrByShortCode } from "@/store/slices/qrSlice";
@@ -17,8 +18,24 @@ import type { AppDispatch, RootState } from "@/store";
 /* ------------------------------------------------------------------ */
 
 type QRType =
-  | "url" | "text" | "whatsapp" | "upi" | "wifi"
-  | "vcard" | "email" | "phone" | "sms" | "location";
+  | "url"
+  | "text"
+  | "whatsapp"
+  | "upi"
+  | "wifi"
+  | "vcard"
+  | "email"
+  | "phone"
+  | "sms"
+  | "location"
+  | "image"
+  | "video"
+  | "audio"
+  | "social"
+  | "event"
+  | "feedback"
+  | "menu"
+  | "playlist";
 
 interface QrDesign {
   fgColor?: string;
@@ -44,9 +61,14 @@ const SOCIAL_ICONS: Record<string, { icon: React.ElementType; brand: string }> =
   Facebook: { icon: FaFacebookF, brand: "#1877F2" },
   TikTok: { icon: FaTiktok, brand: "#000000" },
   GitHub: { icon: FaGithub, brand: "#181717" },
+  WhatsApp: { icon: MessageCircle, brand: "#25D366" },
   Website: { icon: Globe, brand: "#1a1a2e" },
   Custom: { icon: Link2, brand: "#475569" },
 };
+
+function socialMeta(label: string) {
+  return SOCIAL_ICONS[label] || SOCIAL_ICONS.Custom;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Click tracking                                                     */
@@ -145,6 +167,98 @@ function downloadVCard(shortCode: string, data: Record<string, any>) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Event (.ics) generation                                            */
+/* ------------------------------------------------------------------ */
+
+function escapeICSValue(value: string): string {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function icsDateTime(date: string, time?: string): string {
+  const d = (date || "").replace(/-/g, "");
+  if (!time) return d;
+  const t = time.replace(":", "") + "00";
+  return `${d}T${t}`;
+}
+
+function reminderToTrigger(reminder?: string): string | null {
+  if (!reminder || reminder === "none") return null;
+  const m = reminder.match(/(\d+)\s*(min|hour|day)/i);
+  if (!m) return "-PT15M";
+  const [, n, unit] = m;
+  if (unit.startsWith("min")) return `-PT${n}M`;
+  if (unit.startsWith("hour")) return `-PT${n}H`;
+  return `-P${n}D`;
+}
+
+function buildICSString(data: Record<string, any>): string {
+  const {
+    title = "Event",
+    description = "",
+    location = "",
+    startDate = "",
+    startTime = "",
+    endDate = "",
+    endTime = "",
+    allDay = false,
+    reminder = "",
+    organizerName = "",
+  } = data;
+
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT"];
+  lines.push(`SUMMARY:${escapeICSValue(title)}`);
+  if (description) lines.push(`DESCRIPTION:${escapeICSValue(description)}`);
+  if (location) lines.push(`LOCATION:${escapeICSValue(location)}`);
+  if (organizerName) lines.push(`ORGANIZER;CN=${escapeICSValue(organizerName)}:MAILTO:noreply@example.com`);
+
+  if (allDay) {
+    lines.push(`DTSTART;VALUE=DATE:${icsDateTime(startDate)}`);
+    lines.push(`DTEND;VALUE=DATE:${icsDateTime(endDate || startDate)}`);
+  } else {
+    lines.push(`DTSTART:${icsDateTime(startDate, startTime || "00:00")}`);
+    lines.push(`DTEND:${icsDateTime(endDate || startDate, endTime || startTime || "00:00")}`);
+  }
+
+  const trigger = reminderToTrigger(reminder);
+  if (trigger) {
+    lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `TRIGGER:${trigger}`, "END:VALARM");
+  }
+
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+function downloadICS(shortCode: string, data: Record<string, any>) {
+  trackClickBeacon(shortCode);
+  const ics = buildICSString(data);
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const filename = `${(data.title || "event").trim().replace(/\s+/g, "_")}.ics`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Location helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+function getMapsHref(data: Record<string, any>): string {
+  if (data.mode === "url" && data.mapsUrl) return data.mapsUrl;
+  const lat = data.latitude || "28.6139";
+  const lng = data.longitude || "77.2090";
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -170,10 +284,18 @@ export default function PreviewPage({ params }: PageProps) {
   if (!currentShortQr) return <StateScreen kind="missing" />;
 
   const design: QrDesign = currentShortQr.design || {};
-  const accent = design.accentColor || design.fgColor || "#0d9488";
+  const content = currentShortQr.content || {};
   const type = currentShortQr.type as QRType;
   const shortCode = currentShortQr.shortCode as string;
-  const primaryAction = getPrimaryAction(type, currentShortQr.content || {});
+
+  // vCard theming lives on content.theme; other types fall back to design/fgColor.
+  const accent =
+    (type === "vcard" && content?.theme?.accentColor) ||
+    design.accentColor ||
+    design.fgColor ||
+    "#0d9488";
+
+  const primaryAction = getPrimaryAction(type, content);
 
   return (
     <div
@@ -198,7 +320,7 @@ export default function PreviewPage({ params }: PageProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              {renderContent(type, currentShortQr.content || {}, design, shortCode)}
+              {renderContent(type, content, design, shortCode)}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -217,7 +339,9 @@ export default function PreviewPage({ params }: PageProps) {
           <button
             onClick={() => {
               if (primaryAction.isVCard) {
-                downloadVCard(shortCode, currentShortQr.content || {});
+                downloadVCard(shortCode, content);
+              } else if (primaryAction.isICS) {
+                downloadICS(shortCode, content);
               } else {
                 trackAndGo(shortCode, primaryAction.href, primaryAction.external);
               }
@@ -330,15 +454,12 @@ function BrandFooter({ accent }: { accent: string }) {
 function getPrimaryAction(
   type: QRType,
   data: Record<string, any>
-): { label: string; href: string; external?: boolean; isVCard?: boolean } | null {
+): { label: string; href: string; external?: boolean; isVCard?: boolean; isICS?: boolean } | null {
   switch (type) {
     case "url":
       return { label: "Visit site", href: data.url || "#", external: true };
-    case "location": {
-      const lat = data.latitude || "28.6139";
-      const lng = data.longitude || "77.2090";
-      return { label: "Get directions", href: `https://www.google.com/maps?q=${lat},${lng}`, external: true };
-    }
+    case "location":
+      return { label: "Get directions", href: getMapsHref(data), external: true };
     case "phone":
       return { label: "Call now", href: `tel:${data.phone || ""}` };
     case "sms":
@@ -350,6 +471,9 @@ function getPrimaryAction(
     case "vcard":
       // href unused for vcard — handled via downloadVCard in the click handler
       return { label: "Add to Contacts", href: "#", isVCard: true };
+    case "event":
+      // href unused for event — handled via downloadICS in the click handler
+      return { label: "Add to Calendar", href: "#", isICS: true };
     default:
       return null;
   }
@@ -359,19 +483,73 @@ function getPrimaryAction(
 /*  Content router                                                     */
 /* ------------------------------------------------------------------ */
 
-function renderContent(type: QRType, data: Record<string, any>, design: QrDesign, shortCode: string) {
+function renderContent(
+  type: QRType,
+  data: Record<string, any>,
+  design: QrDesign,
+  shortCode: string
+) {
   switch (type) {
-    case "url": return <URLContent data={data} shortCode={shortCode} />;
-    case "vcard": return <VCardContent data={data} design={design} shortCode={shortCode} />;
-    case "upi": return <UPIContent data={data} shortCode={shortCode} />;
-    case "whatsapp": return <WhatsAppContent data={data} shortCode={shortCode} />;
-    case "wifi": return <WifiContent data={data} shortCode={shortCode} />;
-    case "email": return <EmailContent data={data} shortCode={shortCode} />;
-    case "phone": return <PhoneCallContent data={data} shortCode={shortCode} />;
-    case "sms": return <SMSContent data={data} shortCode={shortCode} />;
-    case "location": return <LocationContent data={data} shortCode={shortCode} />;
-    case "text": return <TextContent data={data} />;
-    default: return <URLContent data={data} shortCode={shortCode} />;
+    case "url":
+      return <URLContent data={data} shortCode={shortCode} />;
+
+    case "vcard":
+      return <VCardContent data={data} design={design} shortCode={shortCode} />;
+
+    case "upi":
+      return <UPIContent data={data} shortCode={shortCode} />;
+
+    case "whatsapp":
+      return <WhatsAppContent data={data} shortCode={shortCode} />;
+
+    case "wifi":
+      return <WifiContent data={data} shortCode={shortCode} />;
+
+    case "email":
+      return <EmailContent data={data} shortCode={shortCode} />;
+
+    case "phone":
+      return <PhoneCallContent data={data} shortCode={shortCode} />;
+
+    case "sms":
+      return <SMSContent data={data} shortCode={shortCode} />;
+
+    case "location":
+      return <LocationContent data={data} shortCode={shortCode} />;
+
+    case "text":
+      return <TextContent data={data} />;
+
+    case "image":
+      return <ImageContent data={data} />;
+
+    case "video":
+      return <VideoContent data={data} />;
+
+    case "audio":
+      return <AudioContent data={data} />;
+
+    case "social":
+      return <SocialContent data={data} />;
+
+    case "event":
+      return <EventContent data={data} shortCode={shortCode} />;
+
+    case "feedback":
+      return <FeedbackContent data={data} shortCode={shortCode} />;
+
+    case "menu":
+      return <MenuContent data={data} />;
+
+    case "playlist":
+      return <PlaylistContent data={data} />;
+
+    default:
+      return (
+        <div className="p-10 text-center">
+          Unsupported QR Type
+        </div>
+      );
   }
 }
 
@@ -412,7 +590,8 @@ function URLContent({ data, shortCode }: { data: Record<string, any>; shortCode:
 }
 
 /* ------------------------------------------------------------------ */
-/*  VCard                                                               */
+/*  VCard — reads content.theme (bannerColor/accentColor/layout),      */
+/*  content.avatarUrl, content.bio, content.showAddToContacts          */
 /* ------------------------------------------------------------------ */
 
 function VCardContent({
@@ -424,56 +603,76 @@ function VCardContent({
   design: QrDesign;
   shortCode: string;
 }) {
+  const theme = data.theme || {};
+  const layout = theme.layout || "classic";
+  // theme.bannerColor can be a solid hex OR a CSS gradient string — always
+  // apply it with `background`, never `backgroundColor`.
+  const banner = theme.bannerColor || design.bannerColor || "#000099";
+  const accent = theme.accentColor || design.accentColor || design.fgColor || "#0d9488";
+
   const name = data.fullName || "Your Name";
   const role = data.role || (data.company ? "Team Member" : "Your Role");
   const company = data.company || "";
-  const initials = name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+  const bio = data.bio || "";
+  const avatarUrl = data.avatarUrl || "";
+  const initials = name.split(/\s+/).filter(Boolean).map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+
   const phones: { label: string; value: string }[] = data.phones || [];
   const emails: { label: string; value: string }[] = data.emails || [];
   const socials: { label: string; value: string }[] = data.socials || [];
+  const showCTA = data.showAddToContacts !== false;
+  const hasContactInfo = phones.length > 0 || emails.length > 0 || socials.length > 0;
 
-  const banner = design.bannerColor || "#000099";
-  const accent = design.accentColor || banner;
-
-  return (
-    <div className="flex flex-col">
-      <div className="relative px-5 pb-14 pt-7 sm:px-8" style={{ backgroundColor: banner }}>
-        <p
-          className="text-center text-[10px] font-semibold uppercase tracking-[0.25em] sm:text-xs"
-          style={{ color: "rgba(255,255,255,0.85)" }}
-        >
-          {company || "Digital Card"}
-        </p>
-      </div>
-
-      <div className="relative -mt-11 flex justify-center sm:-mt-12">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white shadow-md sm:h-24 sm:w-24">
-          <div
-            className="flex h-full w-full items-center justify-center rounded-full"
-            style={{ backgroundColor: `${accent}26` }}
-          >
-            <span className="text-xl font-bold sm:text-2xl" style={{ color: accent }}>{initials}</span>
-          </div>
+  const AvatarCircle = ({ size }: { size: number }) => (
+    <div
+      className="shrink-0 overflow-hidden rounded-full border-4 border-white bg-white shadow-md"
+      style={{ width: size, height: size }}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center rounded-full" style={{ backgroundColor: `${accent}26` }}>
+          <span className="font-bold" style={{ color: accent, fontSize: size * 0.32 }}>{initials}</span>
         </div>
-      </div>
+      )}
+    </div>
+  );
 
-      <div className="mt-3 px-4 text-center">
-        <h3 className="text-lg font-bold leading-tight text-neutral-900 sm:text-xl">{name}</h3>
-        <p className="mt-0.5 text-xs text-neutral-500 sm:text-sm">{role}</p>
-      </div>
-
-      <div className="mt-5 space-y-2 px-4 pb-4 sm:px-8">
-        {phones.map((p, i) => <ContactRow key={`p${i}`} icon={Phone} label={p.label} value={p.value} accent={accent} />)}
-        {emails.map((e, i) => <ContactRow key={`e${i}`} icon={Mail} label={e.label} value={e.value} accent={accent} />)}
+  const SocialStrip = () =>
+    socials.length ? (
+      <div className="flex flex-wrap justify-center gap-2 px-4">
         {socials.map((s, i) => {
-          const meta = SOCIAL_ICONS[s.label] || SOCIAL_ICONS.Custom;
-          return <ContactRow key={`s${i}`} icon={meta.icon} label={s.label} value={s.value} accent={meta.brand} />;
+          const meta = socialMeta(s.label);
+          return (
+            <a
+              key={i}
+              href={/^https?:\/\//i.test(s.value) ? s.value : `https://${s.value}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => trackClickBeacon(shortCode)}
+              className="flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ backgroundColor: `${meta.brand}1a` }}
+              title={s.label}
+            >
+              <meta.icon className="h-3.5 w-3.5" style={{ color: meta.brand }} />
+            </a>
+          );
         })}
-        {phones.length === 0 && emails.length === 0 && socials.length === 0 && (
-          <p className="py-6 text-center text-xs text-neutral-400">No contact details added yet.</p>
-        )}
       </div>
+    ) : null;
 
+  const ContactRows = () => (
+    <div className="space-y-2">
+      {phones.map((p, i) => <ContactRow key={`p${i}`} icon={Phone} label={p.label} value={p.value} accent={accent} />)}
+      {emails.map((e, i) => <ContactRow key={`e${i}`} icon={Mail} label={e.label} value={e.value} accent={accent} />)}
+      {!hasContactInfo && (
+        <p className="py-6 text-center text-xs text-neutral-400">No contact details added yet.</p>
+      )}
+    </div>
+  );
+
+  const CTA = () =>
+    showCTA ? (
       <div className="px-4 pb-5 sm:px-8">
         <button
           onClick={() => downloadVCard(shortCode, data)}
@@ -483,6 +682,86 @@ function VCardContent({
         </button>
         <p className="mt-2 text-center text-[11px] text-neutral-400">Saves directly to your phone — no app needed</p>
       </div>
+    ) : null;
+
+  // --- Split layout: thin bar, left-aligned avatar + name row ---
+  if (layout === "split") {
+    return (
+      <div className="flex flex-col">
+        <div className="h-2.5" style={{ background: banner }} />
+        <div className="flex items-center gap-4 px-5 pb-4 pt-5 sm:px-8">
+          <AvatarCircle size={64} />
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-bold leading-tight text-neutral-900">{name}</h3>
+            <p className="truncate text-xs text-neutral-500">{role}{company ? ` · ${company}` : ""}</p>
+          </div>
+        </div>
+        {bio && <p className="px-5 pb-3 text-[13px] leading-relaxed text-neutral-600 sm:px-8">{bio}</p>}
+        <div className="pb-3"><SocialStrip /></div>
+        <div className="px-4 pb-4 sm:px-8"><ContactRows /></div>
+        <CTA />
+      </div>
+    );
+  }
+
+  // --- Minimal layout: no banner, centered & clean ---
+  if (layout === "minimal") {
+    return (
+      <div className="flex flex-col">
+        <div className="flex flex-col items-center px-4 pt-8">
+          <AvatarCircle size={84} />
+          <h3 className="mt-3 text-lg font-bold leading-tight text-neutral-900">{name}</h3>
+          <p className="mt-0.5 text-xs text-neutral-500">{role}</p>
+          {company && <p className="text-[11px] text-neutral-400">{company}</p>}
+          {bio && <p className="mt-2 max-w-xs text-center text-[13px] leading-relaxed text-neutral-600">{bio}</p>}
+        </div>
+        <div className="mt-4"><SocialStrip /></div>
+        <div className="mx-5 my-4 h-px bg-neutral-100 sm:mx-8" />
+        <div className="px-4 pb-4 sm:px-8"><ContactRows /></div>
+        <CTA />
+      </div>
+    );
+  }
+
+  // --- Banner layout: full-bleed color, name overlaid ---
+  if (layout === "banner") {
+    return (
+      <div className="flex flex-col">
+        <div className="flex items-start justify-between px-5 pb-9 pt-6 sm:px-8" style={{ background: banner }}>
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-bold leading-tight text-white">{name}</h3>
+            <p className="mt-0.5 truncate text-xs text-white/80">{role}</p>
+            {company && <p className="truncate text-[11px] text-white/70">{company}</p>}
+          </div>
+          <AvatarCircle size={56} />
+        </div>
+        {bio && <p className="px-5 pt-3 text-[13px] leading-relaxed text-neutral-600 sm:px-8">{bio}</p>}
+        <div className="mt-3"><SocialStrip /></div>
+        <div className="px-4 pb-4 pt-3 sm:px-8"><ContactRows /></div>
+        <CTA />
+      </div>
+    );
+  }
+
+  // --- Classic layout (default): banner strip + centered avatar overlap ---
+  return (
+    <div className="flex flex-col">
+      <div className="relative px-5 pb-14 pt-7 sm:px-8" style={{ background: banner }}>
+        <p className="text-center text-[10px] font-semibold uppercase tracking-[0.25em] sm:text-xs" style={{ color: "rgba(255,255,255,0.85)" }}>
+          {company || "Digital Card"}
+        </p>
+      </div>
+      <div className="relative -mt-11 flex justify-center sm:-mt-12">
+        <AvatarCircle size={80} />
+      </div>
+      <div className="mt-3 px-4 text-center">
+        <h3 className="text-lg font-bold leading-tight text-neutral-900 sm:text-xl">{name}</h3>
+        <p className="mt-0.5 text-xs text-neutral-500 sm:text-sm">{role}</p>
+        {bio && <p className="mx-auto mt-2 max-w-xs text-[13px] leading-relaxed text-neutral-600">{bio}</p>}
+      </div>
+      <div className="mt-4"><SocialStrip /></div>
+      <div className="mt-5 space-y-2 px-4 pb-4 sm:px-8"><ContactRows /></div>
+      <CTA />
     </div>
   );
 }
@@ -726,13 +1005,12 @@ function SMSContent({ data, shortCode }: { data: Record<string, any>; shortCode:
 }
 
 /* ------------------------------------------------------------------ */
-/*  Location                                                            */
+/*  Location — handles both mode:"url" (mapsUrl) and lat/lng            */
 /* ------------------------------------------------------------------ */
 
 function LocationContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
-  const lat = data.latitude || "28.6139";
-  const lng = data.longitude || "77.2090";
-  const mapsHref = `https://www.google.com/maps?q=${lat},${lng}`;
+  const isUrlMode = data.mode === "url" && data.mapsUrl;
+  const mapsHref = getMapsHref(data);
 
   return (
     <div className="flex flex-col">
@@ -751,7 +1029,9 @@ function LocationContent({ data, shortCode }: { data: Record<string, any>; short
       </div>
       <div className="px-5 py-5 text-center sm:px-8">
         <p className="text-sm font-semibold text-neutral-900">Pinned Location</p>
-        <p className="mt-0.5 text-[11px] text-neutral-500">{lat}°N, {lng}°E</p>
+        <p className="mt-0.5 truncate text-[11px] text-neutral-500">
+          {isUrlMode ? mapsHref : `${data.latitude || "28.6139"}°N, ${data.longitude || "77.2090"}°E`}
+        </p>
         <button
           onClick={() => trackAndGo(shortCode, mapsHref, true)}
           className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
@@ -777,6 +1057,398 @@ function TextContent({ data }: { data: Record<string, any> }) {
       </div>
       <div className="rounded-xl border border-neutral-100 bg-neutral-50 p-4">
         <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-neutral-700">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Image / Video / Audio                                               */
+/* ------------------------------------------------------------------ */
+
+function ImageContent({ data }: { data: Record<string, any> }) {
+  const image = data.image || data.imageUrl || data.url || "";
+  const caption = data.caption || data.title || "";
+  return (
+    <div className="p-5 sm:p-6">
+      {image ? (
+        <img src={image} alt={caption || "QR Image"} className="w-full rounded-xl border border-neutral-100 object-cover" />
+      ) : (
+        <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-neutral-200 text-sm text-neutral-400">
+          No image available.
+        </div>
+      )}
+      {caption && <p className="mt-3 text-center text-sm font-medium text-neutral-700">{caption}</p>}
+    </div>
+  );
+}
+
+function VideoContent({ data }: { data: Record<string, any> }) {
+  const video = data.video || data.videoUrl || data.url || "";
+  const caption = data.caption || data.title || "";
+  return (
+    <div className="p-5 sm:p-6">
+      {video ? (
+        <video controls className="w-full rounded-xl border border-neutral-100">
+          <source src={video} />
+        </video>
+      ) : (
+        <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-neutral-200 text-sm text-neutral-400">
+          No video available.
+        </div>
+      )}
+      {caption && <p className="mt-3 text-center text-sm font-medium text-neutral-700">{caption}</p>}
+    </div>
+  );
+}
+
+function AudioContent({ data }: { data: Record<string, any> }) {
+  const audio = data.audio || data.audioUrl || data.url || "";
+  const caption = data.caption || data.title || "";
+  return (
+    <div className="p-5 sm:p-6 text-center">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[color:var(--accent)]/10">
+        <MessageSquare className="h-7 w-7" style={{ color: "var(--accent)" }} />
+      </div>
+      {caption && <p className="mb-3 text-sm font-medium text-neutral-700">{caption}</p>}
+      {audio ? (
+        <audio controls className="w-full">
+          <source src={audio} />
+        </audio>
+      ) : (
+        <p className="text-sm text-neutral-400">No audio available.</p>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Social — reads content.profiles / displayName / bio / avatarUrl     */
+/* ------------------------------------------------------------------ */
+
+function SocialContent({ data }: { data: Record<string, any> }) {
+  const profiles: { platform: string; handle?: string; url: string }[] = data.profiles || [];
+  const displayName = data.displayName || "Your Name";
+  const bio = data.bio || "";
+  const avatarUrl = data.avatarUrl || "";
+  const theme = data.theme || "light";
+
+  const dark = theme === "dark";
+  const gradient = theme === "gradient";
+
+  return (
+    <div
+      className="flex flex-col items-center gap-3 px-6 py-9 text-center sm:px-8 sm:py-11"
+      style={{
+        background: gradient ? "linear-gradient(135deg,#000099,#7c3aed)" : dark ? "#0f0f1a" : undefined,
+        color: dark || gradient ? "#fff" : "#14151A",
+      }}
+    >
+      <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-white/15 sm:h-20 sm:w-20">
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+        ) : (
+          <User className={`h-7 w-7 ${dark || gradient ? "text-white" : "text-neutral-400"}`} />
+        )}
+      </div>
+      <div>
+        <p className="text-base font-bold sm:text-lg">{displayName}</p>
+        {bio && <p className={`mt-1 max-w-xs text-[13px] ${dark || gradient ? "text-white/75" : "text-neutral-500"}`}>{bio}</p>}
+      </div>
+
+      <div className="mt-2 w-full space-y-2">
+        {profiles.map((p, i) => {
+          const meta = socialMeta(p.platform);
+          return (
+            <a
+              key={i}
+              href={p.url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition"
+              style={{
+                backgroundColor: dark || gradient ? "rgba(255,255,255,0.12)" : "#F5F5F4",
+              }}
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: dark || gradient ? "rgba(255,255,255,0.15)" : `${meta.brand}1a` }}>
+                <meta.icon className="h-3.5 w-3.5" style={{ color: dark || gradient ? "#fff" : meta.brand }} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold">{p.platform}</p>
+                {p.handle && <p className={`truncate text-[11px] ${dark || gradient ? "text-white/60" : "text-neutral-400"}`}>{p.handle}</p>}
+              </div>
+              <ExternalLink className={`h-3.5 w-3.5 shrink-0 ${dark || gradient ? "text-white/50" : "text-neutral-300"}`} />
+            </a>
+          );
+        })}
+        {profiles.length === 0 && (
+          <p className={`py-4 text-xs ${dark || gradient ? "text-white/60" : "text-neutral-400"}`}>No social links added yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Event — reads full date/time range, allDay, reminder, organizer;    */
+/*  offers an .ics "Add to Calendar" download                          */
+/* ------------------------------------------------------------------ */
+
+function formatEventDate(date: string, time: string, allDay: boolean) {
+  if (!date) return "";
+  const iso = allDay ? date : `${date}T${time || "00:00"}`;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return date;
+  const dateStr = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  if (allDay) return dateStr;
+  const timeStr = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${dateStr} · ${timeStr}`;
+}
+
+function EventContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
+  const title = data.title || "Event";
+  const description = data.description || "";
+  const location = data.location || "";
+  const allDay = !!data.allDay;
+  const organizerName = data.organizerName || "";
+  const reminder = data.reminder || "";
+
+  const startLabel = formatEventDate(data.startDate, data.startTime, allDay);
+  const endLabel = formatEventDate(data.endDate, data.endTime, allDay);
+  const sameDay = data.startDate === data.endDate;
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3 px-5 py-4 sm:px-8" style={{ backgroundColor: "var(--accent)" }}>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20">
+          <CalendarPlus className="h-5 w-5 text-white" />
+        </div>
+        <h2 className="truncate text-base font-bold text-white sm:text-lg">{title}</h2>
+      </div>
+
+      <div className="space-y-3 px-5 py-5 sm:px-8">
+        <div className="flex items-start gap-3">
+          <Clock className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
+          <div className="text-[13px] text-neutral-700">
+            <p className="font-medium">{startLabel}</p>
+            {!sameDay && endLabel && <p className="text-neutral-500">to {endLabel}</p>}
+            {sameDay && !allDay && data.endTime && (
+              <p className="text-neutral-500">
+                until {new Date(`${data.endDate}T${data.endTime}`).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {location && (
+          <div className="flex items-start gap-3">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
+            <p className="truncate text-[13px] text-neutral-700">{location}</p>
+          </div>
+        )}
+
+        {organizerName && (
+          <div className="flex items-start gap-3">
+            <Users className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
+            <p className="text-[13px] text-neutral-700">Hosted by {organizerName}</p>
+          </div>
+        )}
+
+        {description && (
+          <p className="rounded-xl bg-neutral-50 px-3.5 py-3 text-[13px] leading-relaxed text-neutral-600">{description}</p>
+        )}
+
+        {reminder && reminder !== "none" && (
+          <p className="text-[11px] text-neutral-400">Reminder set for {reminder} before</p>
+        )}
+      </div>
+
+      <div className="px-5 pb-5 sm:px-8">
+        <button
+          onClick={() => downloadICS(shortCode, data)}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white"
+          style={{ backgroundColor: "var(--accent)" }}
+        >
+          <CalendarPlus className="h-4 w-4" /> Add to Calendar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Feedback — renders headline/subheading + the real questions array   */
+/* ------------------------------------------------------------------ */
+
+function FeedbackContent({ data, shortCode }: { data: Record<string, any>; shortCode: string }) {
+  const headline = data.headline || "How was your experience?";
+  const subheading = data.subheading || "";
+  const questions: { id: string; type: "rating" | "text" | "yesno"; label: string; required?: boolean }[] = data.questions || [];
+  const thankYouMessage = data.thankYouMessage || "Thanks for your feedback!";
+
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col items-center px-6 py-14 text-center sm:px-8">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--accent)]/10">
+          <ShieldCheck className="h-7 w-7" style={{ color: "var(--accent)" }} />
+        </div>
+        <p className="text-sm font-semibold text-neutral-900">{thankYouMessage}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      <div className="px-6 pt-7 text-center sm:px-8">
+        <h2 className="text-lg font-bold text-neutral-900">{headline}</h2>
+        {subheading && <p className="mt-1 text-[13px] text-neutral-500">{subheading}</p>}
+      </div>
+
+      <div className="mt-5 space-y-5 px-6 sm:px-8">
+        {questions.map((q) => (
+          <div key={q.id}>
+            <p className="mb-2 text-[13px] font-medium text-neutral-800">
+              {q.label}{q.required && <span style={{ color: "var(--accent)" }}> *</span>}
+            </p>
+
+            {q.type === "rating" && (
+              <div className="flex gap-1.5">
+                {Array.from({ length: 5 }).map((_, i) => {
+                  const filled = (answers[q.id] || 0) > i;
+                  return (
+                    <button key={i} onClick={() => setAnswers((a) => ({ ...a, [q.id]: i + 1 }))}>
+                      <Star className={`h-6 w-6 ${filled ? "fill-amber-400 text-amber-400" : "text-neutral-200"}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {q.type === "yesno" && (
+              <div className="flex gap-2">
+                {["Yes", "No"].map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setAnswers((a) => ({ ...a, [q.id]: opt }))}
+                    className="flex-1 rounded-xl border py-2 text-[13px] font-medium"
+                    style={
+                      answers[q.id] === opt
+                        ? { backgroundColor: "var(--accent)", borderColor: "var(--accent)", color: "#fff" }
+                        : { borderColor: "#e5e5e5", color: "#404040" }
+                    }
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {q.type === "text" && (
+              <textarea
+                value={answers[q.id] || ""}
+                onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+                placeholder="Type your answer…"
+                className="min-h-[70px] w-full rounded-xl border border-neutral-200 p-3 text-[13px] outline-none focus:border-neutral-400"
+              />
+            )}
+          </div>
+        ))}
+        {questions.length === 0 && (
+          <p className="py-4 text-center text-xs text-neutral-400">No questions added yet.</p>
+        )}
+      </div>
+
+      <div className="px-6 py-6 sm:px-8">
+        <button
+          onClick={() => {
+            trackClickBeacon(shortCode);
+            setSubmitted(true);
+          }}
+          className="flex h-11 w-full items-center justify-center rounded-2xl text-sm font-semibold text-white"
+          style={{ backgroundColor: "var(--accent)" }}
+        >
+          Submit
+        </button>
+        {data.allowAnonymous && (
+          <p className="mt-2 text-center text-[11px] text-neutral-400">Your response is anonymous</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Menu — reads content.categories[].items[] + restaurantName/currency */
+/* ------------------------------------------------------------------ */
+
+function MenuContent({ data }: { data: Record<string, any> }) {
+  const restaurantName = data.restaurantName || "Restaurant Name";
+  const currency = data.currency || "₹";
+  const categories: { id: string; name: string; items: { id: string; name: string; price: string }[] }[] = data.categories || [];
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex flex-col items-center gap-2 px-5 py-6 text-center text-white sm:px-8" style={{ backgroundColor: "var(--accent)" }}>
+        <UtensilsCrossed className="h-6 w-6" />
+        <h2 className="text-lg font-bold">{restaurantName}</h2>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">Menu</p>
+      </div>
+
+      <div className="space-y-5 px-5 py-5 sm:px-8">
+        {categories.map((cat) => (
+          <div key={cat.id}>
+            <p className="mb-2 text-[12px] font-bold uppercase tracking-wide" style={{ color: "var(--accent)" }}>{cat.name}</p>
+            <div className="space-y-1.5">
+              {cat.items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between border-b border-neutral-100 py-1.5">
+                  <span className="text-[13px] text-neutral-800">{item.name || "Item"}</span>
+                  <span className="text-[13px] font-semibold text-neutral-600">{currency}{item.price || "0"}</span>
+                </div>
+              ))}
+              {cat.items.length === 0 && <p className="py-1 text-xs text-neutral-400">No items in this category.</p>}
+            </div>
+          </div>
+        ))}
+        {categories.length === 0 && (
+          <p className="py-6 text-center text-xs text-neutral-400">No menu items added yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Playlist                                                            */
+/* ------------------------------------------------------------------ */
+
+function PlaylistContent({ data }: { data: Record<string, any> }) {
+  const tracks: { title: string; artist?: string; url?: string }[] = data.tracks || [];
+
+  return (
+    <div className="p-5 sm:p-6">
+      <h2 className="mb-4 text-lg font-bold text-neutral-900">{data.title || "Playlist"}</h2>
+      <div className="space-y-2">
+        {tracks.map((track, index) => (
+          <a
+            key={index}
+            href={track.url || "#"}
+            target={track.url ? "_blank" : undefined}
+            rel="noreferrer"
+            className="flex items-center gap-3 rounded-lg border border-neutral-100 p-3 hover:bg-neutral-50"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)]/10">
+              <span className="text-[11px] font-semibold" style={{ color: "var(--accent)" }}>{index + 1}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium text-neutral-800">{track.title}</p>
+              {track.artist && <p className="truncate text-[11px] text-neutral-500">{track.artist}</p>}
+            </div>
+          </a>
+        ))}
+        {tracks.length === 0 && <p className="text-sm text-neutral-400">No tracks found.</p>}
       </div>
     </div>
   );

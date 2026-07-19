@@ -1,15 +1,13 @@
 // components/qr-builder/forms/types/SocialForm.tsx
 "use client";
-import { useState } from "react";
-import { toast } from "sonner";
 import FormSection from "../FormSection";
 import FieldError, { errorRing } from "../FieldError";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Share2, User, Palette, Loader2 } from "lucide-react";
+import { Plus, X, Share2, User, Palette } from "lucide-react";
 import type { SocialValue, SocialProfile } from "@/lib/qr-types/schema";
-import { uploadFile, UploadError } from "@/lib/uploadFile";
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 
 interface Props { value: SocialValue; onChange: (v: SocialValue) => void; errors?: Record<string, string> }
 
@@ -21,24 +19,21 @@ const THEMES: { id: SocialValue["theme"]; label: string; swatch: string }[] = [
 ];
 
 export default function SocialForm({ value, onChange, errors }: Props) {
-  const [uploading, setUploading] = useState(false);
   const set = <K extends keyof SocialValue>(k: K, v: SocialValue[K]) => onChange({ ...value, [k]: v });
 
-  const handleAvatarPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // No upload here anymore — just hold the raw File. The actual
+  // Cloudinary upload happens once, in CreateContent.tsx's handleSave
+  // via uploadPendingFiles(), right before the QR is created.
+  const handleAvatarPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    try {
-      const url = await uploadFile(file, "social-avatars");
-      set("avatarUrl", url);
-      toast.success("Photo uploaded");
-    } catch (err) {
-      toast.error(err instanceof UploadError ? err.message : "Upload failed — try again");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
+    set("avatarUrl", file as any);
+    e.target.value = "";
   };
+
+  // value.avatarUrl may be a real URL string (existing/edited QR) or a
+  // raw File (freshly picked, not yet uploaded) — this hook handles both.
+  const avatarPreview = useFilePreviewUrl(value.avatarUrl as any);
 
   const updateProfile = (i: number, patch: Partial<SocialProfile>) =>
     set("profiles", value.profiles.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
@@ -65,17 +60,26 @@ export default function SocialForm({ value, onChange, errors }: Props) {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-muted-foreground">Avatar</Label>
-            <label className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-border cursor-pointer hover:border-foreground/30 transition">
-              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <User className="w-3.5 h-3.5" />}
-              {uploading ? "Uploading…" : "Choose photo"}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                onChange={handleAvatarPick}
-                disabled={uploading}
-                className="hidden"
-              />
-            </label>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full overflow-hidden bg-secondary/50 border border-border shrink-0 flex items-center justify-center">
+                {avatarPreview ? (
+                  <img src={avatarPreview} className="w-full h-full object-cover" alt="" />
+                ) : (
+                  <User className="w-5 h-5 text-muted-foreground" />
+                )}
+              </div>
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-border cursor-pointer hover:border-foreground/30 transition">
+                <User className="w-3.5 h-3.5" />
+                {avatarPreview ? "Change photo" : "Choose photo"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={handleAvatarPick}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Uploaded when you save.</p>
           </div>
         </div>
       </FormSection>
@@ -140,6 +144,7 @@ export default function SocialForm({ value, onChange, errors }: Props) {
 // --- Preview ---
 export function SocialPreview({ value }: { value: SocialValue }) {
   const dark = value.theme === "dark";
+  const avatarPreview = useFilePreviewUrl(value.avatarUrl as any);
   return (
     <div
       className="w-[228px] rounded-xl border border-border p-5 flex flex-col items-center gap-3"
@@ -149,7 +154,7 @@ export function SocialPreview({ value }: { value: SocialValue }) {
       }}
     >
       <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
-        {value.avatarUrl ? <img src={value.avatarUrl} className="w-full h-full object-cover" alt="" /> : <User className="w-7 h-7" />}
+        {avatarPreview ? <img src={avatarPreview} className="w-full h-full object-cover" alt="" /> : <User className="w-7 h-7" />}
       </div>
       <div className="text-center">
         <p className="text-sm font-bold">{value.displayName || "Your name"}</p>

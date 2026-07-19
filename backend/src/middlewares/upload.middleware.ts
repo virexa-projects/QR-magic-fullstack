@@ -59,3 +59,9 @@ export const uploadLogo = multer({
 // `multer.diskStorage` for `multer.memoryStorage()` and upload
 // `req.file.buffer` to S3 / Cloudflare R2 / GCS in the controller
 // instead of writing to local disk.
+
+
+export const uploadAny = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});

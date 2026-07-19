@@ -1,3 +1,4 @@
+"use client";
 import { motion } from "framer-motion";
 import { CreditCard, MessageSquare, Wifi, BarChart3, Palette, Download, ShieldCheck, Edit3 } from "lucide-react";
 

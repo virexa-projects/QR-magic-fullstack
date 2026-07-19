@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ListMusic, Image as ImageIcon } from "lucide-react";
 import type { PlaylistValue } from "@/lib/qr-types/schema";
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 
 interface Props { value: PlaylistValue; onChange: (v: PlaylistValue) => void; errors?: Record<string, string> }
 
@@ -61,9 +62,8 @@ export default function PlaylistForm({ value, onChange, errors }: Props) {
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (!f) return;
-            const r = new FileReader();
-            r.onload = () => set("coverImage", r.result as string);
-            r.readAsDataURL(f);
+            set("coverImage", f as any);
+            e.target.value = "";
           }}
           className="text-xs"
         />
@@ -74,10 +74,11 @@ export default function PlaylistForm({ value, onChange, errors }: Props) {
 
 // --- Preview ---
 export function PlaylistPreview({ value }: { value: PlaylistValue }) {
+  const cover = useFilePreviewUrl(value.coverImage as any);
   return (
     <div className="w-[228px] rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-3">
       <div className="w-28 h-28 rounded-lg bg-secondary flex items-center justify-center overflow-hidden">
-        {value.coverImage ? <img src={value.coverImage} className="w-full h-full object-cover" alt="" /> : <ListMusic className="w-8 h-8 text-muted-foreground" />}
+        {cover ? <img src={cover} className="w-full h-full object-cover" alt="" /> : <ListMusic className="w-8 h-8 text-muted-foreground" />}
       </div>
       <div className="text-center">
         <p className="text-sm font-semibold text-foreground truncate max-w-[180px]">{value.title || "Playlist title"}</p>

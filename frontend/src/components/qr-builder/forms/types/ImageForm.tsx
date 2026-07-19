@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Image as ImageIcon, X, LayoutGrid } from "lucide-react";
 import type { ImageValue } from "@/lib/qr-types/schema";
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 
 interface Props { value: ImageValue; onChange: (v: ImageValue) => void; errors?: Record<string, string> }
 
@@ -18,13 +19,14 @@ const LAYOUTS: { id: ImageValue["layout"]; label: string }[] = [
 export default function ImageForm({ value, onChange, errors }: Props) {
   const set = <K extends keyof ImageValue>(k: K, v: ImageValue[K]) => onChange({ ...value, [k]: v });
 
+  // No FileReader/base64 anymore — just hold the raw File. Nothing hits
+  // the network until the user clicks Save, at which point
+  // uploadPendingFiles() in CreateContent.tsx walks this array and
+  // swaps each File for its Cloudinary URL.
   const addFiles = (files: FileList | null) => {
     if (!files) return;
-    Array.from(files).forEach((f) => {
-      const r = new FileReader();
-      r.onload = () => set("images", [...value.images, { url: r.result as string, caption: "" }]);
-      r.readAsDataURL(f);
-    });
+    const newEntries = Array.from(files).map((f) => ({ url: f as any, caption: "" }));
+    set("images", [...value.images, ...newEntries]);
   };
 
   const removeImage = (i: number) => set("images", value.images.filter((_, idx) => idx !== i));
@@ -35,26 +37,12 @@ export default function ImageForm({ value, onChange, errors }: Props) {
     <div className="space-y-3">
       <FormSection title="Images" icon={ImageIcon} badge={value.images.length ? `${value.images.length} added` : undefined} defaultOpen error={errors?.images}>
         <div className="space-y-3">
-          <input type="file" accept="image/*" multiple onChange={(e) => addFiles(e.target.files)} className="text-xs" />
+          <input type="file" accept="image/*" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} className="text-xs" />
           <FieldError message={errors?.images} />
           {value.images.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
               {value.images.map((img, i) => (
-                <div key={i} className="relative rounded-lg border border-border overflow-hidden">
-                  <img src={img.url} className="w-full h-20 object-cover" alt="" />
-                  <button
-                    onClick={() => removeImage(i)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center"
-                  >
-                    <X className="w-3 h-3 text-white" />
-                  </button>
-                  <input
-                    value={img.caption || ""}
-                    onChange={(e) => updateCaption(i, e.target.value)}
-                    placeholder="Caption"
-                    className="w-full text-[10px] px-1.5 py-1 bg-background border-t border-border"
-                  />
-                </div>
+                <ImageThumb key={i} img={img} onCaption={(c) => updateCaption(i, c)} onRemove={() => removeImage(i)} />
               ))}
             </div>
           )}
@@ -90,6 +78,24 @@ export default function ImageForm({ value, onChange, errors }: Props) {
   );
 }
 
+function ImageThumb({ img, onCaption, onRemove }: { img: { url: any; caption?: string }; onCaption: (c: string) => void; onRemove: () => void }) {
+  const preview = useFilePreviewUrl(img.url);
+  return (
+    <div className="relative rounded-lg border border-border overflow-hidden">
+      <img src={preview} className="w-full h-20 object-cover" alt="" />
+      <button onClick={onRemove} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+        <X className="w-3 h-3 text-white" />
+      </button>
+      <input
+        value={img.caption || ""}
+        onChange={(e) => onCaption(e.target.value)}
+        placeholder="Caption"
+        className="w-full text-[10px] px-1.5 py-1 bg-background border-t border-border"
+      />
+    </div>
+  );
+}
+
 // --- Preview ---
 export function ImagePreview({ value }: { value: ImageValue }) {
   return (
@@ -100,7 +106,7 @@ export function ImagePreview({ value }: { value: ImageValue }) {
       {value.images.length ? (
         <div className={`p-2 grid gap-1.5 ${value.layout === "grid" ? "grid-cols-2" : "grid-cols-1"}`}>
           {value.images.slice(0, value.layout === "grid" ? 4 : 2).map((img, i) => (
-            <img key={i} src={img.url} className="w-full h-20 object-cover rounded-md" alt="" />
+            <PreviewThumb key={i} url={img.url as any} />
           ))}
         </div>
       ) : (
@@ -111,4 +117,9 @@ export function ImagePreview({ value }: { value: ImageValue }) {
       )}
     </div>
   );
+}
+
+function PreviewThumb({ url }: { url: any }) {
+  const preview = useFilePreviewUrl(url);
+  return <img src={preview} className="w-full h-20 object-cover rounded-md" alt="" />;
 }

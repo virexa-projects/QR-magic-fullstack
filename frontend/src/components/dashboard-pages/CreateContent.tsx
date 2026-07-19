@@ -22,7 +22,7 @@ import QrTypeGrid from "@/components/qr-builder/QrTypeGrid";
 import PhoneFrame from "@/components/qr-builder/preview/PhoneFrame";
 import { QR_TYPE_REGISTRY } from "@/lib/qr-types/registry";
 import { validateQrValue, type QrTypeId } from "@/lib/qr-types/schema";
-
+import { uploadPendingFiles } from "@/utils/uploadPendingFiles";
 const presetColors = [
   { fg: "#000000", bg: "#FFFFFF", name: "Classic" },
   { fg: "#000099", bg: "#FFFFFF", name: "Brand" },
@@ -196,36 +196,54 @@ function CreateInner() {
   };
 
   const handleSave = async () => {
-    if (!qrName.trim()) return toast.error("Add a name first");
-    if (!validateStep2()) {
-      setStep(2);
-      return;
-    }
-    if (!isAuthenticated) {
-      savePendingQrDraft({ type: selectedType, formData: formValue, fgColor, bgColor });
-      router.push("/login?redirect=/create&resume=true");
-      return;
-    }
-    const payload = buildPayload();
-    try {
-      const result = await dispatch(createQr(payload)).unwrap();
-      const qr = result.data;
-      setSavedQr({
-        name: qr?.name ?? payload.name,
-        type: (qr?.type as QrTypeId) ?? payload.type,
-        qrValue: payload.qrValue,
-        fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
-        bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
-        isDynamic: qr?.isDynamic ?? payload.isDynamic,
-        shortUrl: qr?.shortUrl,
-        design: qr?.design ?? payload.design,
-      });
-      setShowSuccessModal(true);
-    } catch (error: any) {
-      console.error("Redux dispatch rejection traceback:", error);
-      toast.error(typeof error === "string" ? error : "Couldn't save this QR — try again");
-    }
-  };
+  if (!qrName.trim()) return toast.error("Add a name first");
+  if (!validateStep2()) {
+    setStep(2);
+    return;
+  }
+  if (!isAuthenticated) {
+    savePendingQrDraft({ type: selectedType, formData: formValue, fgColor, bgColor });
+    router.push("/login?redirect=/create&resume=true");
+    return;
+  }
+
+  try {
+    // This is the single point where any raw File objects sitting in
+    // formValue (vcard avatar, gallery images, audio/video/cover files)
+    // get uploaded to Cloudinary and swapped for real URLs. Nothing
+    // above this line ever touched the network.
+    const uploadedContent = await uploadPendingFiles(formValue, `qr/${selectedType}`);
+    setFormValue(uploadedContent);
+
+    const finalQrValue = def.encode(uploadedContent) || "https://example.com";
+    const payload = {
+      name: qrName.trim(),
+      type: selectedType,
+      isDynamic,
+      destination: finalQrValue,
+      design: qrDesign,
+      qrValue: finalQrValue,
+      content: uploadedContent,
+    };
+
+    const result = await dispatch(createQr(payload)).unwrap();
+    const qr = result.data;
+    setSavedQr({
+      name: qr?.name ?? payload.name,
+      type: (qr?.type as QrTypeId) ?? payload.type,
+      qrValue: payload.qrValue,
+      fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
+      bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
+      isDynamic: qr?.isDynamic ?? payload.isDynamic,
+      shortUrl: qr?.shortUrl,
+      design: qr?.design ?? payload.design,
+    });
+    setShowSuccessModal(true);
+  } catch (error: any) {
+    console.error("Save failed:", error);
+    toast.error(typeof error === "string" ? error : "Couldn't save this QR — try again");
+  }
+};
 
   const handleViewInLibrary = () => {
     setShowSuccessModal(false);

@@ -1,7 +1,5 @@
 // components/qr-builder/forms/types/VCardForm.tsx
 "use client";
-import { useState } from "react";
-import { toast } from "sonner";
 import FormSection from "../FormSection";
 import FieldError, { errorRing } from "../FieldError";
 import ContactFieldList from "@/components/qr-builder/vcard/ContactFieldList";
@@ -14,11 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  User, Phone, Palette, Type, Image as ImageIcon, IdCard, Share2, Mail, Loader2,
+  User, Phone, Palette, Type, Image as ImageIcon, IdCard, Share2, Mail,
   Instagram, Linkedin, Youtube, Facebook, Github, Twitter, Globe, MessageCircle, LayoutTemplate,
 } from "lucide-react";
 import type { VCardValue } from "@/lib/qr-types/schema";
-import { uploadFile, UploadError } from "@/lib/uploadFile";
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 
 interface Props { value: VCardValue; onChange: (v: VCardValue) => void; errors?: Record<string, string> }
 
@@ -38,28 +36,22 @@ function socialIcon(label: string) {
 }
 
 export default function VCardForm({ value, onChange, errors }: Props) {
-  const [uploading, setUploading] = useState(false);
-  const [uploadPct, setUploadPct] = useState(0);
   const set = <K extends keyof VCardValue>(k: K, v: VCardValue[K]) => onChange({ ...value, [k]: v });
 
-  const handleAvatarPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // No upload here anymore — just hold the raw File. The actual Cloudinary
+  // upload happens once, in CreateContent.tsx's handleSave via
+  // uploadPendingFiles(), right before the QR is created. This preview
+  // renders a local blob URL in the meantime via useFilePreviewUrl.
+  const handleAvatarPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    setUploadPct(0);
-    try {
-      // Real multipart/form-data binary upload — hits the multer route on
-      // the backend and comes back with a hosted URL, not a base64 blob.
-      const url = await uploadFile(file, "vcard-avatars", { onProgress: setUploadPct });
-      set("avatarUrl", url);
-      toast.success("Photo uploaded");
-    } catch (err) {
-      toast.error(err instanceof UploadError ? err.message : "Upload failed — try again");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
+    set("avatarUrl", file as any);
+    e.target.value = "";
   };
+
+  // value.avatarUrl may be a real URL string (existing/edited QR) or a
+  // raw File (freshly picked, not yet uploaded) — this hook handles both.
+  const avatarPreview = useFilePreviewUrl(value.avatarUrl as any);
 
   return (
     <div className="space-y-3">
@@ -88,22 +80,22 @@ export default function VCardForm({ value, onChange, errors }: Props) {
         </div>
       </FormSection>
 
-      <FormSection title="Photo" icon={ImageIcon} description="Avatar shown on the card — uploaded as a real file">
+      <FormSection title="Photo" icon={ImageIcon} description="Avatar shown on the card — uploaded when you save">
         <div className="flex items-center gap-3">
           <div className="w-14 h-14 rounded-full overflow-hidden bg-secondary/50 border border-border shrink-0 flex items-center justify-center">
-            {value.avatarUrl ? (
-              <img src={value.avatarUrl} className="w-full h-full object-cover" alt="" />
+            {avatarPreview ? (
+              <img src={avatarPreview} className="w-full h-full object-cover" alt="" />
             ) : (
               <User className="w-6 h-6 text-muted-foreground" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <label className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-border cursor-pointer hover:border-foreground/30 transition">
-              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-              {uploading ? `Uploading… ${uploadPct}%` : "Choose photo"}
-              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleAvatarPick} disabled={uploading} className="hidden" />
+              <ImageIcon className="w-3.5 h-3.5" />
+              {avatarPreview ? "Change photo" : "Choose photo"}
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleAvatarPick} className="hidden" />
             </label>
-            <p className="text-[10px] text-muted-foreground mt-1">PNG, JPG, WEBP or GIF — up to 5MB</p>
+            <p className="text-[10px] text-muted-foreground mt-1">PNG, JPG, WEBP or GIF — up to 5MB. Uploaded when you save.</p>
           </div>
         </div>
       </FormSection>
@@ -296,14 +288,18 @@ function initialsOf(name: string) {
   return (name || "Your Name").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 }
 
+// value.avatarUrl can be a saved URL string OR a File the user just
+// picked but hasn't saved yet — useFilePreviewUrl renders either case
+// (blob preview for a File, pass-through for a real URL).
 function Avatar({ value, size, accent }: { value: VCardValue; size: number; accent: string }) {
+  const preview = useFilePreviewUrl(value.avatarUrl as any);
   return (
     <div
       className="rounded-full bg-card border-[3px] border-card shadow-md overflow-hidden shrink-0"
       style={{ width: size, height: size }}
     >
-      {value.avatarUrl ? (
-        <img src={value.avatarUrl} className="w-full h-full object-cover" alt="" />
+      {preview ? (
+        <img src={preview} className="w-full h-full object-cover" alt="" />
       ) : (
         <div className="w-full h-full rounded-full flex items-center justify-center" style={{ backgroundColor: `${accent}26` }}>
           <span className="font-bold" style={{ color: accent, fontSize: size * 0.32 }}>{initialsOf(value.fullName)}</span>
