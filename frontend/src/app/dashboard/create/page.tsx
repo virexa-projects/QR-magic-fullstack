@@ -1,6 +1,6 @@
-"use client";
 
-import CreateContent from "@/components/dashboard-pages/CreateContent";
+
+import CreateContent from "@/components/dashboard-pages/create/CreateContent";
 
 export default function DashboardCreatePage() {
   return <CreateContent />;
