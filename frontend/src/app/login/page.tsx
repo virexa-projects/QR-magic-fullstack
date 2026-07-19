@@ -22,6 +22,15 @@ export default function LoginPage() {
   const dispatch = useAppDispatch();
   const { loading: authLoading } = useAppSelector((state) => state.auth);
 
+  // Read ?redirect param so we can send the user back to where they came from.
+  // Must be read here (client component) not in a server component because
+  // useSearchParams() requires a Suspense boundary in the App Router —
+  // the login page is already a client component so it's safe.
+  const redirectTo =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("redirect") ?? "/dashboard"
+      : "/dashboard";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -49,7 +58,7 @@ export default function LoginPage() {
 
     const resultAction = await dispatch(loginUser(result.data));
     if (loginUser.fulfilled.match(resultAction)) {
-      router.push("/dashboard");
+      router.push(redirectTo);
     }
   };
 

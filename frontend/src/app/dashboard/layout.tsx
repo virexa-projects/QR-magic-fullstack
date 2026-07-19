@@ -1,12 +1,38 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { SearchBar } from "@/components/dashboard/SearchBar";
 import { NotificationBell } from "@/components/dashboard/NotificationBell";
+import { getPendingQrDraft } from "@/utils/pendingQrDraft";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  /**
+   * Draft resume redirect.
+   * Whenever the user lands on any dashboard page (most commonly /dashboard
+   * after logging in), check if they have an unfinished QR draft in
+   * localStorage. If yes, send them to the create page with ?resume=true so
+   * useQrDraftRestore can pick it up and auto-save.
+   *
+   * We skip the redirect if they're already on /dashboard/create (the hook
+   * there will handle it) to avoid a redirect loop.
+   */
+  useEffect(() => {
+    if (pathname === "/dashboard/create") return; // already there — hook handles it
+    const draft = getPendingQrDraft();
+    if (draft) {
+      router.replace("/dashboard/create?resume=true");
+    }
+  // Only run once on mount — if the path changes while the draft still
+  // exists (e.g. after a failed auto-save) we don't want to keep bouncing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-secondary/40">

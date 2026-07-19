@@ -1,5 +1,5 @@
 "use client";
-
+// \src\app\preview\[shortCode]\page.tsx
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { motion, AnimatePresence } from "framer-motion";

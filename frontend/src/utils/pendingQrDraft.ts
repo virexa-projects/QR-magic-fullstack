@@ -4,9 +4,10 @@ const TTL_MS = 30 * 60 * 1000; // 30 min
 
 interface PendingQrDraft {
   type: string;
-  formData: Record<string, string>;
-  fgColor: string;
-  bgColor: string;
+  formData: Record<string, any>;
+  qrName: string;
+  isDynamic: boolean;
+  design: Record<string, any>;
   savedAt: number;
 }
 

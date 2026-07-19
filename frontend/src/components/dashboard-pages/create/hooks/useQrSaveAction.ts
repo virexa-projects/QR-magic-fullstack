@@ -6,7 +6,10 @@ import { useDispatch } from "react-redux";
 import { toast } from "sonner";
 import type { AppDispatch } from "@/store";
 import { createQr } from "@/store/slices/qrSlice";
-import { savePendingQrDraft } from "@/utils/pendingQrDraft";
+import {
+  savePendingQrDraft,
+  clearPendingQrDraft,
+} from "@/utils/pendingQrDraft";
 import { uploadPendingFiles } from "@/utils/uploadPendingFiles";
 import type { QRDesign } from "@/lib/mockData";
 import type { QrTypeDefinition, QrTypeId } from "@/lib/qr-types/schema";
@@ -25,12 +28,29 @@ interface UseQrSaveActionArgs {
   setStep: (n: 1 | 2 | 3) => void;
 }
 
+/** Data shape passed by the restore hook directly, bypassing stale closure. */
+export interface DraftSaveArgs {
+  type: QrTypeId;
+  def: QrTypeDefinition;
+  formData: any;
+  qrName: string;
+  isDynamic: boolean;
+  design: QRDesign;
+}
+
 /**
  * Owns the entire save pipeline: name check -> validate -> auth gate ->
  * upload pending Files to Cloudinary -> encode -> dispatch createQr ->
- * build the SavedQr summary for the success modal. Identical behavior,
- * API payload, and upload flow as before — just isolated so `CreateContent`
- * doesn't hold this logic inline.
+ * build the SavedQr summary for the success modal.
+ *
+ * Auth gate persists the FULL builder state (qrName, isDynamic, design)
+ * so the restore hook can reconstruct everything after login.
+ *
+ * On success always calls clearPendingQrDraft() so a restored draft is
+ * not re-triggered on the next visit.
+ *
+ * Also exposes handleSaveWithDraft() which accepts all data explicitly —
+ * used by the restore hook to avoid stale React state closures.
  */
 export function useQrSaveAction({
   isAuthenticated,
@@ -49,38 +69,41 @@ export function useQrSaveAction({
   const [savedQr, setSavedQr] = useState<SavedQr | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  const handleSave = useCallback(async () => {
-    if (!qrName.trim()) return toast.error("Add a name first");
-    if (!validateAndReport(formValue)) {
-      setStep(2);
-      return;
-    }
-    if (!isAuthenticated) {
-      savePendingQrDraft({ type: selectedType, formData: formValue, fgColor: qrDesign.fgColor, bgColor: qrDesign.bgColor });
-      router.push("/login?redirect=/create&resume=true");
-      return;
-    }
-
-    try {
-      // Single point where any raw File objects (vcard avatar, gallery
-      // images, audio/video/cover files) are uploaded to Cloudinary and
-      // swapped for real URLs. Nothing above this line touches the network.
-      const uploadedContent = await uploadPendingFiles(formValue, `qr/${selectedType}`);
+  // ── Shared save core — accepts explicit args, zero closure dependency ────
+  const executeSave = useCallback(
+    async (args: {
+      type: QrTypeId;
+      def: QrTypeDefinition;
+      formData: any;
+      qrName: string;
+      isDynamic: boolean;
+      design: QRDesign;
+    }) => {
+      console.log("[useQrSaveAction] executeSave START. args:", args);
+      const uploadedContent = await uploadPendingFiles(
+        args.formData,
+        `qr/${args.type}`
+      );
+      console.log("[useQrSaveAction] uploadPendingFiles finished:", uploadedContent);
       setFormValue(uploadedContent);
 
-      const finalQrValue = def.encode(uploadedContent) || "https://example.com";
+      const finalQrValue =
+        args.def.encode(uploadedContent) || "https://example.com";
       const payload = {
-        name: qrName.trim(),
-        type: selectedType,
-        isDynamic,
+        name: args.qrName.trim(),
+        type: args.type,
+        isDynamic: args.isDynamic,
         destination: finalQrValue,
-        design: qrDesign,
+        design: args.design,
         qrValue: finalQrValue,
         content: uploadedContent,
       };
 
+      console.log("[useQrSaveAction] dispatching createQr payload:", payload);
       const result = await dispatch(createQr(payload)).unwrap();
+      console.log("[useQrSaveAction] dispatch(createQr) unwrap response:", result);
       const qr = result.data;
+
       setSavedQr({
         name: qr?.name ?? payload.name,
         type: (qr?.type as QrTypeId) ?? payload.type,
@@ -91,12 +114,97 @@ export function useQrSaveAction({
         shortUrl: qr?.shortUrl,
         design: qr?.design ?? payload.design,
       });
+
+      console.log("[useQrSaveAction] savedQr state updated. Clearing draft and opening modal.");
+      // Always clear draft on success so the restore hook doesn't re-fire.
+      clearPendingQrDraft();
       setShowSuccessModal(true);
+    },
+    [dispatch, setFormValue]
+  );
+
+  // ── Standard save — reads from React state, used by UI Save buttons ──────
+  const handleSave = useCallback(async () => {
+    if (!qrName.trim()) return toast.error("Add a name first");
+    if (!validateAndReport(formValue)) {
+      setStep(2);
+      return;
+    }
+
+    // Auth gate
+    if (!isAuthenticated) {
+      savePendingQrDraft({
+        type: selectedType,
+        formData: formValue,
+        qrName: qrName.trim(),
+        isDynamic,
+        design: qrDesign,
+      });
+      // Encode ?resume=true into the redirect value so it survives through
+      // the login page's own query string parsing.
+      router.push("/login?redirect=/dashboard/create%3Fresume%3Dtrue");
+      return;
+    }
+
+    try {
+      await executeSave({
+        type: selectedType,
+        def,
+        formData: formValue,
+        qrName,
+        isDynamic,
+        design: qrDesign,
+      });
     } catch (error: any) {
       console.error("Save failed:", error);
-      toast.error(typeof error === "string" ? error : "Couldn't save this QR — try again");
+      toast.error(
+        typeof error === "string"
+          ? error
+          : "Couldn't save this QR — try again"
+      );
     }
-  }, [qrName, validateAndReport, formValue, setStep, isAuthenticated, selectedType, qrDesign, setFormValue, def, isDynamic, dispatch, router]);
+  }, [
+    qrName,
+    validateAndReport,
+    formValue,
+    setStep,
+    isAuthenticated,
+    selectedType,
+    qrDesign,
+    isDynamic,
+    def,
+    executeSave,
+    router,
+  ]);
 
-  return { savedQr, showSuccessModal, setShowSuccessModal, handleSave };
+  /**
+   * Save using explicit draft data — called by useQrDraftRestore to avoid
+   * stale React state closures after the builder setters have been called
+   * but before React has committed the new state to the closure.
+   * Skips name/validation checks (draft was already validated on first save).
+   */
+  const handleSaveWithDraft = useCallback(
+    async (draft: DraftSaveArgs) => {
+      try {
+        await executeSave(draft);
+      } catch (error: any) {
+        console.error("Draft restore save failed:", error);
+        toast.error(
+          typeof error === "string"
+            ? error
+            : "Couldn't save your draft — try saving manually"
+        );
+        throw error; // re-throw so restore hook can run cleanup
+      }
+    },
+    [executeSave]
+  );
+
+  return {
+    savedQr,
+    showSuccessModal,
+    setShowSuccessModal,
+    handleSave,
+    handleSaveWithDraft,
+  };
 }
