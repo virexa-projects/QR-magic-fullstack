@@ -93,6 +93,7 @@ export function useQrDraftRestore({
 
     // Clear the draft from localStorage after successful autofill
     clearPendingQrDraft();
+    console.log("[useQrDraftRestore] draft cleared from localStorage.");
     toast.success("Draft restored! You can now review and save your QR code.");
 
   // Re-run when isAuthenticated changes to handle async Redux auth resolution.

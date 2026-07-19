@@ -1,7 +1,6 @@
 // components/dashboard-pages/create/hooks/useQrValidation.ts
 "use client";
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 import { validateQrValue, type QrTypeId } from "@/lib/qr-types/schema";
 
 /**
@@ -14,7 +13,10 @@ import { validateQrValue, type QrTypeId } from "@/lib/qr-types/schema";
  * "live-clear" UX cheaply, without a full validate on every change while
  * the form is still clean.
  */
-export function useQrValidation(selectedType: QrTypeId) {
+export function useQrValidation(
+  selectedType: QrTypeId,
+  showAlert: (type: "success" | "warning" | "error", title: string, message: string) => void
+) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasErrors, setHasErrors] = useState(false);
 
@@ -25,11 +27,15 @@ export function useQrValidation(selectedType: QrTypeId) {
       setHasErrors(!result.success);
       if (!result.success) {
         const firstMessage = Object.values(result.errors)[0];
-        toast.error(firstMessage || "Please fix the highlighted fields");
+        showAlert(
+          "warning",
+          "Validation Warning",
+          firstMessage || "Please fix the highlighted fields in the form."
+        );
       }
       return result.success;
     },
-    [selectedType]
+    [selectedType, showAlert]
   );
 
   /** Cheap "clear as you fix" check — only runs the full parse if errors are currently showing. */

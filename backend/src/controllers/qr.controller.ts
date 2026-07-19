@@ -144,6 +144,7 @@ export const redirectByShortCode = catchAsync(
       QRType.FEEDBACK,
       QRType.MENU,
       QRType.PLAYLIST,
+      QRType.TEXT
     ];
 
     if (previewTypes.includes(qr.type)) {

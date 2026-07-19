@@ -54,7 +54,7 @@ export function useQrSaveAction({
   const dispatch = useDispatch<AppDispatch>();
   const [savedQr, setSavedQr] = useState<SavedQr | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-
+  const [isSaving, setIsSaving] = useState(false);
   // ── Shared save core — accepts explicit args, zero closure dependency ────
   const executeSave = useCallback(
     async (args: {
@@ -111,6 +111,7 @@ export function useQrSaveAction({
 
   // ── Standard save — reads from React state, used by UI Save buttons ──────
   const handleSave = useCallback(async () => {
+     if (isSaving) return;
     if (!qrName.trim()) return toast.error("Add a name first");
     if (!validateAndReport(formValue)) {
       setStep(2);
@@ -133,6 +134,8 @@ export function useQrSaveAction({
     }
 
     try {
+      
+    setIsSaving(true);
       await executeSave({
         type: selectedType,
         def,
@@ -149,6 +152,9 @@ export function useQrSaveAction({
           : "Couldn't save this QR — try again"
       );
     }
+    finally {
+    setIsSaving(false);
+  }
   }, [
     qrName,
     validateAndReport,
@@ -168,5 +174,6 @@ export function useQrSaveAction({
     showSuccessModal,
     setShowSuccessModal,
     handleSave,
+    isSaving
   };
 }

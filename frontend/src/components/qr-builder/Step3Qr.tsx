@@ -10,7 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { Sparkles, Wand2, Shuffle, AlertTriangle, CheckCircle2, Zap, Download } from "lucide-react";
 import type { QRDesign } from "@/lib/mockData";
 import { calculateQrStrength, generateHarmoniousGradient, randomHex } from "@/lib/qrDesignUtils";
-
+import { toast } from "sonner";
 interface Step3QrProps {
   design: QRDesign;
   fgColor: string;
@@ -126,7 +126,8 @@ export default function Step3Qr({
   const holderRef = useCallback((node: HTMLDivElement | null) => setHolderNode(node), []);
   const qrInstanceRef = useRef<QRCodeStyling | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
-
+const MAX_LOGO_SIZE_MB = 2;
+const ACCEPTED_LOGO_TYPES = ["image/png", "image/jpeg", "image/svg+xml"];
   // Tracks the last design value that was synced between local <-> parent,
   // as a JSON fingerprint. Used by both sync effects below to tell the
   // difference between "a genuinely new design came from outside" and
@@ -451,39 +452,58 @@ export default function Step3Qr({
               )}
             </TabsContent>
 
-            <TabsContent value="logo" className="space-y-4">
-              <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/svg+xml"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    setLogoFile(f);
-                    const r = new FileReader();
-                    r.onload = () => update("logo", r.result as string);
-                    r.readAsDataURL(f);
-                  }}
-                  className="text-xs file:mr-2 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-secondary file:text-foreground file:text-xs file:font-medium hover:file:bg-secondary/70"
-                />
-                {localDesign.logo && <Button variant="ghost" size="sm" onClick={() => { update("logo", undefined); setLogoFile(null); }}>Remove</Button>}
-              </div>
-              {localDesign.logo && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">Logo size ({Math.round((localDesign.logoSize ?? 0.22) * 100)}%)</Label>
-                    <Slider min={10} max={40} step={1} value={[(localDesign.logoSize ?? 0.22) * 100]} onValueChange={([v]) => update("logoSize", v / 100)} />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-medium">Clear background behind logo</Label>
-                    <input type="checkbox" checked={localDesign.hideBackgroundDots ?? true} onChange={(e) => update("hideBackgroundDots", e.target.checked)} className="accent-primary w-4 h-4" />
-                  </div>
-                </>
-              )}
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-lime-500" /> Auto-padded to keep QR scannable. Use Q/H error correction with logos.
-              </p>
-            </TabsContent>
+           <TabsContent value="logo" className="space-y-4">
+  <div className="flex items-center gap-2">
+    <input
+      type="file"
+      accept="image/png,image/jpeg,image/svg+xml"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        e.target.value = ""; // allow re-selecting the same file later
+        if (!f) return;
+
+        if (!ACCEPTED_LOGO_TYPES.includes(f.type)) {
+          toast.error(`Unsupported file type. Use PNG, JPEG, or SVG.`);
+          return;
+        }
+        if (f.size > MAX_LOGO_SIZE_MB * 1024 * 1024) {
+          toast.error(`"${f.name}" is too large (${(f.size / (1024 * 1024)).toFixed(1)}MB). Max ${MAX_LOGO_SIZE_MB}MB.`);
+          return;
+        }
+
+        setLogoFile(f);
+        const r = new FileReader();
+        r.onload = () => update("logo", r.result as string);
+        r.onerror = () => toast.error("Couldn't read that file. Try again.");
+        r.readAsDataURL(f);
+      }}
+      className="text-xs file:mr-2 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-secondary file:text-foreground file:text-xs file:font-medium hover:file:bg-secondary/70"
+    />
+    {localDesign.logo && (
+      <Button variant="ghost" size="sm" onClick={() => { update("logo", undefined); setLogoFile(null); }}>
+        Remove
+      </Button>
+    )}
+  </div>
+
+  {logoFile && (
+    <p className="text-[11px] text-muted-foreground -mt-1">
+      {logoFile.name} · {(logoFile.size / 1024).toFixed(0)}KB
+    </p>
+  )}
+
+  {localDesign.logo && (
+    <>
+      <div className="space-y-1.5">
+        <Label className="text-[11px] text-muted-foreground">Logo size ({Math.round((localDesign.logoSize ?? 0.22) * 100)}%)</Label>
+        <Slider min={10} max={40} step={1} value={[(localDesign.logoSize ?? 0.22) * 100]} onValueChange={([v]) => update("logoSize", v / 100)} />
+      </div>
+    </>
+  )}
+  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+    <Sparkles className="w-3 h-3 text-lime-500" /> Auto-padded to keep QR scannable. Use Q/H error correction with logos.
+  </p>
+</TabsContent>
 
             <TabsContent value="ai" className="space-y-4">
               <div className="rounded-xl border border-border p-4 bg-secondary/30">

@@ -15,13 +15,18 @@ export function GoogleAuthButtons({
   const dispatch = useAppDispatch();
   const router = useRouter();
 
+  const redirectTo =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("redirect") ?? "/dashboard"
+      : "/dashboard";
+
   const handleCredential = async (response: CredentialResponse) => {
     if (!response.credential) return; // silent — no credential means nothing to do yet
 
     const resultAction = await dispatch(googleLogin(response.credential));
 
     if (googleLogin.fulfilled.match(resultAction)) {
-      router.push("/dashboard");
+      router.push(redirectTo);
     }
   };
 

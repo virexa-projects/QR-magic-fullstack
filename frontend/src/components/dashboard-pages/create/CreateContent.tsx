@@ -59,9 +59,17 @@ function CreateInner() {
     resetCanvas,
     restoreDraft,
   } = builder;
-
+  const showAlert = useCallback(
+  (type: "success" | "warning" | "error", title: string, message: string) => {
+    const text = message ? `${title}: ${message}` : title;
+    if (type === "success") toast.success(text);
+    else if (type === "warning") toast.warning ? toast.warning(text) : toast(text);
+    else toast.error(text);
+  },
+  []
+);
   const { errors, validateAndReport, onChangeClearIfFixed, resetErrors } =
-    useQrValidation(selectedType);
+    useQrValidation(selectedType,showAlert);
 
   const qrValue = useQrPreviewValue(def, formValue);
 
@@ -86,7 +94,7 @@ function CreateInner() {
     toast.success("Draft cleared. Starting fresh.");
   }, [resetForm]);
 
-  const { savedQr, showSuccessModal, setShowSuccessModal, handleSave } =
+  const { savedQr, showSuccessModal, setShowSuccessModal, handleSave,isSaving } =
     useQrSaveAction({
       isAuthenticated,
       selectedType,
@@ -182,7 +190,7 @@ function CreateInner() {
           <div className="space-y-5">
             <StepNavigation
               step={step}
-              actionLoading={actionLoading}
+              actionLoading={actionLoading || isSaving}
               onBack={onBack}
               onNext={onNext}
               onSave={handleSave}
@@ -223,7 +231,7 @@ function CreateInner() {
                   isDynamic={isDynamic}
                   setIsDynamic={setIsDynamic}
                   onSave={handleSave}
-                  isLoading={actionLoading}
+                  isLoading={actionLoading || isSaving}
                   qrValue={qrValue}
                   onCancel={onBack}
                   setDesign={setQrDesign}
