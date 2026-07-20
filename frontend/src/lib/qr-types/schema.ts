@@ -234,7 +234,12 @@ export const socialSchema = z.object({
 });
 export type SocialValue = z.infer<typeof socialSchema>;
 export type SocialProfile = z.infer<typeof socialProfileSchema>;
-
+export const defaultSocialValue: SocialValue = {
+  displayName: "",
+  bio: "",
+  profiles: [],
+  theme: "light",
+};
 export const eventSchema = z
   .object({
     title: z.string().trim().min(1, "Event title is required"),

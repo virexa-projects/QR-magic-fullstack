@@ -23,12 +23,34 @@ app.set("trust proxy", "loopback, linklocal, uniquelocal");
 app.set("trust proxy", 1);
 
   app.use(helmet());
-  app.use(
-    cors({
-      origin: env.CLIENT_URL,
-      credentials: true,
-    })
+  const allowedOrigins = [
+  env.CLIENT_URL,
+  env.FRONTEND_URL,
+]
+  .filter(Boolean)
+  .flatMap((origin) =>
+    origin!
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)
   );
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked: ${origin}`));
+    },
+    credentials: true,
+  })
+);
   app.use(compression());
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));

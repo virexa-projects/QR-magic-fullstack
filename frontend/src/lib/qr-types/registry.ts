@@ -22,7 +22,7 @@ import {
 
 import { encodeVCard } from "./encoders/vcard";
 import { encodeICS } from "./encoders/ics";
-import { QrTypeDefinition, QrTypeId, defaultVCardValue, defaultLocationValue } from "./schema";
+import { QrTypeDefinition, QrTypeId, defaultVCardValue, defaultLocationValue, defaultSocialValue } from "./schema";
 
 export const QR_TYPE_REGISTRY: Record<QrTypeId, QrTypeDefinition> = {
   url: {
@@ -137,7 +137,7 @@ export const QR_TYPE_REGISTRY: Record<QrTypeId, QrTypeDefinition> = {
     PreviewComponent: SocialPreview,
     // Dynamic landing-page destination, assigned on save.
     encode: (v) => v.profiles?.[0]?.url ?? "",
-    defaultValue: { displayName: "", bio: "", profiles: [], theme: "light" },
+    defaultValue: defaultSocialValue,
   },
   event: {
     id: "event", label: "Event", icon: CalendarDays, description: "Add-to-calendar invite",

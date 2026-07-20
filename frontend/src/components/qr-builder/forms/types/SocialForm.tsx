@@ -31,8 +31,15 @@ export default function SocialForm({ value, onChange, errors }: Props) {
     e.target.value = "";
   };
 
-  // value.avatarUrl may be a real URL string (existing/edited QR) or a
-  // raw File (freshly picked, not yet uploaded) — this hook handles both.
+  // Clears the avatar entirely. Set to `undefined` (not `null` or `""`)
+  // so it matches what `avatarUrl: fileOrString.optional()` expects when
+  // nothing is chosen — undefined is the "not set" state the schema and
+  // useFilePreviewUrl already handle everywhere else.
+  const handleAvatarRemove = () => set("avatarUrl", undefined as any);
+
+  // value.avatarUrl may be a real URL string (existing/edited QR), a raw
+  // File (freshly picked, not yet uploaded), or undefined — this hook
+  // handles all three.
   const avatarPreview = useFilePreviewUrl(value.avatarUrl as any);
 
   const updateProfile = (i: number, patch: Partial<SocialProfile>) =>
@@ -78,6 +85,15 @@ export default function SocialForm({ value, onChange, errors }: Props) {
                   className="hidden"
                 />
               </label>
+              {avatarPreview && (
+                <button
+                  type="button"
+                  onClick={handleAvatarRemove}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-destructive px-2 py-1.5 rounded-lg transition"
+                >
+                  <X className="w-3.5 h-3.5" /> Remove
+                </button>
+              )}
             </div>
             <p className="text-[10px] text-muted-foreground">Uploaded when you save.</p>
           </div>
