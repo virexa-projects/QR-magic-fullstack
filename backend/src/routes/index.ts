@@ -6,7 +6,8 @@ import billingRoutes from "./billing.routes";
 import adminRoutes from "./admin.routes";
 import notificationRoutes from './Notification.routes'
 import searchRoutes from './Search.routes';
-import CloudinaryRoute from './upload.routes'
+import CloudinaryRoute from './upload.routes';
+import feedbackRoutes from "./feedback.routes"
 const router = Router();
 
 router.get("/health", (_req: Request, res: Response) => {
@@ -21,5 +22,6 @@ router.use("/notifications", notificationRoutes);
 router.use("/search", searchRoutes);
 router.use("/admin", adminRoutes);
 router.use("/cloudinary", CloudinaryRoute);
+router.use("/feedback", feedbackRoutes);
 
 export default router;

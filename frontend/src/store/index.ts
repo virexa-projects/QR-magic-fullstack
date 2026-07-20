@@ -1,16 +1,18 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { TypedUseSelectorHook, useDispatch, useSelector } from "react-redux";
 import authReducer from "./slices/authSlice";
-import billingReducer from "./slices/Billingslice"; 
+import billingReducer from "./slices/Billingslice";
 import qrReducer from "./slices/qrSlice";
 import analyticsReducer from "./slices/analyticsSlice"
 import { toastMiddleware } from "./middleware/toastMiddleware";
+import feedbackReducer from "./slices/feedback.slice";
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     billing: billingReducer,
-    qr:qrReducer,
-     analytics: analyticsReducer,
+    qr: qrReducer,
+    analytics: analyticsReducer,
+    feedback:feedbackReducer
   },
   middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(toastMiddleware),
 });

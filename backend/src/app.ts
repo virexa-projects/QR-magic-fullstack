@@ -19,25 +19,25 @@ export function createApp(): Application {
 // Correct (what fixed the earlier IP-detection bug):
 app.set("trust proxy", "loopback, linklocal, uniquelocal");
 
-// Reverted (brings back the wrong-IP bug):
-app.set("trust proxy", 1);
+
 
   app.use(helmet());
-  const allowedOrigins = [
+ const allowedOrigins = [
   env.CLIENT_URL,
   env.FRONTEND_URL,
 ]
-  .filter(Boolean)
-  .flatMap((origin) =>
-    origin!
-      .split(",")
-      .map((o) => o.trim())
-      .filter(Boolean)
-  );
+.flatMap((origin) =>
+  origin
+    ? origin.split(",").map((o) => o.trim())
+    : []
+);
+
 
 app.use(
   cors({
     origin(origin, callback) {
+
+      // Postman, curl, server requests
       if (!origin) {
         return callback(null, true);
       }
@@ -46,8 +46,11 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(new Error(`CORS blocked: ${origin}`));
+      logger.warn(`Blocked CORS origin: ${origin}`);
+
+      return callback(null, false);
     },
+
     credentials: true,
   })
 );

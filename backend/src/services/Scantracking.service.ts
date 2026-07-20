@@ -20,7 +20,9 @@ function mapDeviceType(ua: ReturnType<UAParser["getResult"]>): DeviceType {
 function todayBucket(): string {
   return new Date().toISOString().slice(0, 10);
 }
-
+// function todayBucket(): string {
+//   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); // "YYYY-MM-DD"
+// }
 export async function recordScan(
   qrCodeId: Types.ObjectId,
   ownerId: Types.ObjectId,
@@ -64,7 +66,18 @@ export async function recordScan(
       referrer: (req.headers.referer as string) || (req.headers.referrer as string),
       scannedAt: new Date(),
     });
-
+     const qrDoc = await QRCode.findById(qrCodeId).select("scansTodayDate");
+    if (qrDoc?.scansTodayDate === date) {
+      await QRCode.findByIdAndUpdate(qrCodeId, {
+        $inc: { scansTotal: 1, scansToday: 1 },
+        $set: { lastScanAt: new Date() },
+      });
+    } else {
+      await QRCode.findByIdAndUpdate(qrCodeId, {
+        $inc: { scansTotal: 1 },
+        $set: { scansToday: 1, scansTodayDate: date, lastScanAt: new Date() },
+      });
+    }
     await QRCode.findByIdAndUpdate(qrCodeId, {
       $inc: { scansTotal: 1 },
       $set: { lastScanAt: new Date() },

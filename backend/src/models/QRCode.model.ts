@@ -37,6 +37,7 @@ export interface IQRCode extends Document {
   design: IQRDesign;
   scansTotal: number;
   scansToday: number;
+  scansTodayDate?: string | null;
   clicksTotal: number;      // NEW
   lastScanAt?: Date;
   lastClickAt?: Date;       // NEW
@@ -85,7 +86,8 @@ const qrCodeSchema = new Schema<IQRCode>(
     design: { type: designSchema, default: () => ({}) },
     scansTotal: { type: Number, default: 0 },
     scansToday: { type: Number, default: 0 },
-     clicksTotal: { type: Number, default: 0 },   // NEW
+    scansTodayDate: { type: String, default: null },
+    clicksTotal: { type: Number, default: 0 },   // NEW
     lastScanAt: { type: Date },
     lastClickAt: { type: Date },                 // NEW
     expiresAt: { type: Date, default: null },

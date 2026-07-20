@@ -1,6 +1,6 @@
 // components/dashboard-pages/create/components/Step3Designer.tsx
 "use client";
-import { memo } from "react";
+import { memo, type Dispatch, type SetStateAction } from "react";
 import { motion } from "framer-motion";
 import { Palette } from "lucide-react";
 import type { QRDesign } from "@/lib/mockData";
@@ -21,7 +21,7 @@ interface Props {
   isLoading: boolean;
   qrValue: string;
   onCancel: () => void;
-  setDesign: (d: QRDesign) => void;
+  setDesign: Dispatch<SetStateAction<QRDesign>>;
 }
 
 function Step3DesignerBase(props: Props) {
