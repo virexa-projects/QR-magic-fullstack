@@ -12,6 +12,7 @@ export type QrType =
   | "email"
   | "phone"
   | "sms"
+  | "feedback" 
   | "location";
 
 export type QrStatus = "active" | "paused" | "archived" | "expired";

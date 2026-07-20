@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { QrCode, Eye, TrendingUp, Activity, Plus, ArrowUpRight, Smartphone } from "lucide-react";
@@ -7,6 +7,7 @@ import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useAppSelector, useAppDispatch } from "@/store";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { fetchSummary, fetchTrend, fetchDevices, fetchTopQrs } from "@/store/slices/analyticsSlice";
+import { usePageRefresh } from "../Context/RefreshContext";
 
 // Colors for the devices pie chart, keyed by the device string your
 // Scan/AnalyticsDaily documents actually store (lowercase).
@@ -30,7 +31,17 @@ function OverviewInner() {
   }, [dispatch]);
 
   const firstName = user?.name?.split(" ")[0] || "there";
-
+  usePageRefresh(
+    useCallback(async () => {
+      await Promise.all([
+        dispatch(fetchSummary()),
+        dispatch(fetchTrend()),
+        dispatch(fetchDevices()),
+        dispatch(fetchTopQrs({ limit: 4 })),
+      ]);
+    }, [dispatch]),
+    []
+  );
   // Backend doesn't return a "vs last week" % directly, so derive it from
   // the trend series: sum of the last 7 days vs the 7 days before that.
   const weekChange = (() => {

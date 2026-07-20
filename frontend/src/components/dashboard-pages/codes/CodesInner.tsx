@@ -1,7 +1,7 @@
 // components/dashboard-pages/codes/CodesInner.tsx
 "use client";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useDispatch } from "react-redux";
 import type { AppDispatch } from "@/store";
 import { updateQr } from "@/store/slices/qrSlice";
@@ -22,6 +22,7 @@ import { useSelection } from "./hooks/useSelection";
 
 import type { QrCode, ViewMode } from "./codes.types";
 import { defaultDesign } from "./codes.constants";
+import { usePageRefresh } from "@/components/Context/RefreshContext";
 
 // Dialogs that only matter once a user opens them — code-split so the
 // initial table/grid render doesn't pay for qr-code-styling, html-to-image,
@@ -62,7 +63,12 @@ export default function CodesInner() {
     selection.clear();
     refetch();
   };
-
+  usePageRefresh(
+    useCallback(async () => {
+      await refetch();
+    }, [refetch]),
+    [refetch]
+  );
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
       <CodesHeader loading={loading} total={pagination.total} page={pagination.page} totalPages={paging.totalPages} />

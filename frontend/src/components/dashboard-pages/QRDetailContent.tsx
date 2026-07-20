@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { motion } from "framer-motion";
@@ -28,6 +28,11 @@ import {
 import GeoBreakdown from "@/components/qr/GeoBreakdown";
 import StyledQrPreview from "../dashboard/StyledQrPreview";
 import DownloadPopover from "../dashboard/DownloadPopover";
+import ShareMenu from "./codes/components/ShareMenu";
+import EditQrDialog from "./codes/lazy/EditQrDialog";
+import { useCodeActions } from "./codes/hooks/useCodeActions";
+import { usePageRefresh } from "../Context/RefreshContext";
+import FeedbackResponsesPage from "./FeedbackResponsesPage";
 
 const typeColors: Record<string, string> = {
   url: "bg-primary-soft text-primary",
@@ -65,6 +70,8 @@ function QRDetailInner() {
     (s: RootState) => s.analytics
   );
 
+  const actions = useCodeActions();
+
   useEffect(() => {
     if (!id) return;
     dispatch(fetchQrById(id));
@@ -84,11 +91,30 @@ function QRDetailInner() {
     );
     dispatch(fetchQrLocations({ id, limit: 6 }));
     dispatch(fetchQrRecentScans({ id, limit: 6 }));
-    dispatch(fetchQrGeoReport({ id }));
+
     return () => {
       dispatch(clearQrAnalytics());
     };
   }, [dispatch, id]);
+
+  usePageRefresh(
+    useCallback(async () => {
+      if (!id) return;
+      const endDate = new Date().toISOString().split("T")[0];
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+      const startDate = start.toISOString().split("T")[0];
+
+      await Promise.all([
+        dispatch(fetchQrById(id)),
+        dispatch(fetchQrAnalytics({ id, startDate, endDate })),
+        dispatch(fetchQrLocations({ id, limit: 6 })),
+        dispatch(fetchQrRecentScans({ id, limit: 6 })),
+        dispatch(fetchQrGeoReport({ id })),
+      ]);
+    }, [dispatch, id]),
+    [id]
+  );
 
   const data = useMemo(() => {
     if (!qr || dailyRows.length === 0) return null;
@@ -222,9 +248,7 @@ function QRDetailInner() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" className="rounded-full">
-              <Share2 className="w-3.5 h-3.5 mr-1.5" /> Share
-            </Button>
+
             <Button variant="outline" size="sm" className="rounded-full">
               <DownloadPopover
                 value={qr.shortUrl}
@@ -237,8 +261,13 @@ function QRDetailInner() {
                 }
               />
             </Button>
-            <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-blue">
-              <Link href="/dashboard/codes"><Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit</Link>
+            <ShareMenu qr={qr} />
+            <Button
+              size="sm"
+              onClick={() => actions.openEdit(qr)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-blue"
+            >
+              <Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit
             </Button>
           </div>
         </div>
@@ -414,6 +443,20 @@ function QRDetailInner() {
 
       {/* Geography breakdown — country / region / city drill-down */}
       {id && <GeoBreakdown qrId={id} />}
+
+    
+     {qr.type === "feedback" && (
+        <FeedbackResponsesPage qrId={qr._id} qrName={qr.name} />
+      )}
+
+      <EditQrDialog
+        editing={actions.editing}
+        fields={actions.editFields}
+        actionLoading={actions.actionLoading}
+        onFieldChange={actions.setEditField}
+        onClose={actions.closeEdit}
+        onSave={actions.saveEdit}
+      />
     </div>
   );
 }

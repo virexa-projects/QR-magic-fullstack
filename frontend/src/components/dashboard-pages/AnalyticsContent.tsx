@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState,useCallback } from "react";
+
+import { usePageRefresh } from "@/components/Context/RefreshContext";
 import { motion } from "framer-motion";
 import { useDispatch, useSelector } from "react-redux";
 import { format, startOfMonth } from "date-fns";
@@ -60,7 +62,7 @@ function AnalyticsInner() {
     summary, trend, devices, accountLocations, hourly, summaryLoading,
     dailyRows, locations, recentScans, qrScansToday, loading,
   } = useSelector((s: RootState) => s.analytics);
-
+  
   // Populate the QR dropdown with the user's real codes
   useEffect(() => {
     dispatch(fetchQrCodes({ limit: 100, sort: "recent" }));
@@ -84,7 +86,27 @@ function AnalyticsInner() {
       if (selectedId !== "all") dispatch(clearQrAnalytics());
     };
   }, [dispatch, selectedId, startDate, endDate]);
-
+usePageRefresh(
+  useCallback(async () => {
+    if (selectedId === "all") {
+      await Promise.all([
+        dispatch(fetchSummary({ startDate, endDate })),
+        dispatch(fetchTrend({ startDate, endDate })),
+        dispatch(fetchDevices({ startDate, endDate })),
+        dispatch(fetchAccountLocations({ limit: 10 })),
+        dispatch(fetchHourly({ startDate, endDate })),
+      ]);
+    } else {
+      await Promise.all([
+        dispatch(fetchQrAnalytics({ id: selectedId, startDate, endDate })),
+        dispatch(fetchQrLocations({ id: selectedId, limit: 6 })),
+        dispatch(fetchQrRecentScans({ id: selectedId, limit: 8 })),
+        dispatch(fetchQrScansToday({ id: selectedId })),
+      ]);
+    }
+  }, [dispatch, selectedId, startDate, endDate]),
+  [selectedId, startDate, endDate]
+);
   const selected = useMemo(
     () => (selectedId === "all" ? null : qrItems.find((q) => q._id === selectedId) ?? null),
     [selectedId, qrItems]

@@ -7,6 +7,8 @@ import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { SearchBar } from "@/components/dashboard/SearchBar";
 import { NotificationBell } from "@/components/dashboard/NotificationBell";
 import { getPendingQrDraft } from "@/utils/pendingQrDraft";
+import RefreshButton from "@/components/RefreshButton";
+import { RefreshProvider } from "@/components/Context/RefreshContext";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -28,30 +30,40 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (draft) {
       router.replace("/dashboard/create?resume=true");
     }
-  // Only run once on mount — if the path changes while the draft still
-  // exists (e.g. after a failed auto-save) we don't want to keep bouncing.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only run once on mount — if the path changes while the draft still
+    // exists (e.g. after a failed auto-save) we don't want to keep bouncing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-secondary/40">
-        <DashboardSidebar />
+      <RefreshProvider>
+        <div className="min-h-screen flex w-full bg-secondary/40">
+          <DashboardSidebar />
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-16 border-b border-border bg-background/80 backdrop-blur-xl flex items-center gap-3 px-4 md:px-6 sticky top-0 z-30">
-            <SidebarTrigger />
-            <div className="flex-1 max-w-md hidden md:block">
-              <SearchBar />
-            </div>
-            <NotificationBell />
-          </header>
+          <div className="flex-1 flex flex-col min-w-0">
+            <header className="h-16 border-b border-border bg-background/80 backdrop-blur-xl flex items-center gap-3 px-4 md:px-6 sticky top-0 z-30">
+              <SidebarTrigger />
 
-          <main className="flex-1  overflow-x-hidden px-6">
-            {children}
-          </main>
+              <div className="max-w-md hidden md:block">
+                <SearchBar />
+              </div>
+
+              {/* Push buttons to the right */}
+              <div className="flex-1" />
+
+              <div className="flex items-center gap-2">
+                <RefreshButton />
+                <NotificationBell />
+              </div>
+            </header>
+
+            <main className="flex-1  overflow-x-hidden px-6">
+              {children}
+            </main>
+          </div>
         </div>
-      </div>
+      </RefreshProvider>
     </SidebarProvider>
   );
 }

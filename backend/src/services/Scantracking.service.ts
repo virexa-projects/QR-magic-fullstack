@@ -66,7 +66,7 @@ export async function recordScan(
       referrer: (req.headers.referer as string) || (req.headers.referrer as string),
       scannedAt: new Date(),
     });
-     const qrDoc = await QRCode.findById(qrCodeId).select("scansTodayDate");
+    const qrDoc = await QRCode.findById(qrCodeId).select("scansTodayDate");
     if (qrDoc?.scansTodayDate === date) {
       await QRCode.findByIdAndUpdate(qrCodeId, {
         $inc: { scansTotal: 1, scansToday: 1 },
@@ -78,10 +78,7 @@ export async function recordScan(
         $set: { scansToday: 1, scansTodayDate: date, lastScanAt: new Date() },
       });
     }
-    await QRCode.findByIdAndUpdate(qrCodeId, {
-      $inc: { scansTotal: 1 },
-      $set: { lastScanAt: new Date() },
-    });
+    // ❌ REMOVED — this was the duplicate increment causing double counts
 
     const hour = getISTHour();
     const incFields: Record<string, number> = {
