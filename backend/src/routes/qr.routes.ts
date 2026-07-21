@@ -11,6 +11,7 @@ import {
 } from "@validators/qr.validator";
 import { uploadLogo } from "@middlewares/upload.middleware";
 import { attachLogo } from "@middlewares/attachLogo.middleware";
+import { catchAsync } from "@utils/catchAsync";
 
 const router = Router();
 
@@ -24,13 +25,20 @@ router.post("/short/:shortCode/click", qrController.trackClick);
 
 router.use(authenticate);
 
-router.post("/", enforceQrQuota, validate(createQrSchema), qrController.create);
+router.post(
+  "/",
+  enforceQrQuota,
+  uploadLogo.single("logo"),
+  catchAsync(attachLogo),
+  validate(createQrSchema),
+  qrController.create
+);
 router.get("/", validate(listQrSchema), qrController.list);
 router.get("/:id", validate(idParamSchema), qrController.getOne);
 router.patch(
   "/:id",
   uploadLogo.single("logo"),
-  attachLogo,
+  catchAsync(attachLogo),
   validate(updateQrSchema),
   qrController.update
 );

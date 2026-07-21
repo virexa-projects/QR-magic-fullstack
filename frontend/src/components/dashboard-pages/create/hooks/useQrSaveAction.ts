@@ -27,6 +27,7 @@ interface UseQrSaveActionArgs {
   validateAndReport: (value: any) => boolean;
   setStep: (n: 1 | 2 | 3) => void;
 }
+
 /**
  * Owns the entire save pipeline: name check -> validate -> auth gate ->
  * upload pending Files to Cloudinary -> encode -> dispatch createQr ->
@@ -55,6 +56,7 @@ export function useQrSaveAction({
   const [savedQr, setSavedQr] = useState<SavedQr | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
   // ── Shared save core — accepts explicit args, zero closure dependency ────
   const executeSave = useCallback(
     async (args: {
@@ -65,43 +67,67 @@ export function useQrSaveAction({
       isDynamic: boolean;
       design: QRDesign;
     }) => {
-      console.log("[useQrSaveAction] executeSave START. args:", args);
       const uploadedContent = await uploadPendingFiles(
         args.formData,
         `qr/${args.type}`
       );
-      console.log("[useQrSaveAction] uploadPendingFiles finished:", uploadedContent);
       setFormValue(uploadedContent);
 
       const finalQrValue =
         args.def.encode(uploadedContent) || "https://example.com";
-      const payload = {
+
+      const basePayload = {
         name: args.qrName.trim(),
         type: args.type,
         isDynamic: args.isDynamic,
         destination: finalQrValue,
-        design: args.design,
         qrValue: finalQrValue,
         content: uploadedContent,
       };
 
-      console.log("[useQrSaveAction] dispatching createQr payload:", payload);
-      const result = await dispatch(createQr(payload)).unwrap();
-      console.log("[useQrSaveAction] dispatch(createQr) unwrap response:", result);
+      // design.logo is either:
+      //  - undefined                → no logo, plain JSON is fine
+      //  - a string (Cloudinary URL) → editing an existing QR, no new file to send, plain JSON is fine
+      //  - a File                    → user just picked a logo in Step3Qr; a raw File cannot survive
+      //                                 JSON.stringify (it serializes to `{}`), so this branch must
+      //                                 go out as multipart/form-data instead.
+      const logo = args.design.logo;
+      const hasNewLogoFile = logo instanceof File;
+
+      let dispatchPayload: any;
+
+      if (hasNewLogoFile) {
+        const { logo: _omit, ...designRest } = args.design;
+
+        const fd = new FormData();
+        fd.append("name", basePayload.name);
+        fd.append("type", basePayload.type);
+        fd.append("isDynamic", String(basePayload.isDynamic));
+        fd.append("destination", basePayload.destination);
+        fd.append("qrValue", basePayload.qrValue);
+        fd.append("content", JSON.stringify(basePayload.content));
+        fd.append("design", JSON.stringify(designRest));
+        fd.append("logo", logo as File);
+
+        dispatchPayload = fd;
+      } else {
+        dispatchPayload = { ...basePayload, design: args.design };
+      }
+
+      const result = await dispatch(createQr(dispatchPayload)).unwrap();
       const qr = result.data;
 
       setSavedQr({
-        name: qr?.name ?? payload.name,
-        type: (qr?.type as QrTypeId) ?? payload.type,
-        qrValue: payload.qrValue,
-        fgColor: qr?.design?.fgColor ?? payload.design.fgColor,
-        bgColor: qr?.design?.bgColor ?? payload.design.bgColor,
-        isDynamic: qr?.isDynamic ?? payload.isDynamic,
+        name: qr?.name ?? basePayload.name,
+        type: (qr?.type as QrTypeId) ?? basePayload.type,
+        qrValue: basePayload.qrValue,
+        fgColor: qr?.design?.fgColor ?? args.design.fgColor,
+        bgColor: qr?.design?.bgColor ?? args.design.bgColor,
+        isDynamic: qr?.isDynamic ?? basePayload.isDynamic,
         shortUrl: qr?.shortUrl,
-        design: qr?.design ?? payload.design,
+        design: qr?.design ?? args.design,
       });
 
-      console.log("[useQrSaveAction] savedQr state updated. Clearing draft and opening modal.");
       // Always clear draft on success so the restore hook doesn't re-fire.
       clearPendingQrDraft();
       setShowSuccessModal(true);
@@ -111,7 +137,7 @@ export function useQrSaveAction({
 
   // ── Standard save — reads from React state, used by UI Save buttons ──────
   const handleSave = useCallback(async () => {
-     if (isSaving) return;
+    if (isSaving) return;
     if (!qrName.trim()) return toast.error("Add a name first");
     if (!validateAndReport(formValue)) {
       setStep(2);
@@ -134,8 +160,7 @@ export function useQrSaveAction({
     }
 
     try {
-      
-    setIsSaving(true);
+      setIsSaving(true);
       await executeSave({
         type: selectedType,
         def,
@@ -151,10 +176,9 @@ export function useQrSaveAction({
           ? error
           : "Couldn't save this QR — try again"
       );
+    } finally {
+      setIsSaving(false);
     }
-    finally {
-    setIsSaving(false);
-  }
   }, [
     qrName,
     validateAndReport,
@@ -174,6 +198,6 @@ export function useQrSaveAction({
     showSuccessModal,
     setShowSuccessModal,
     handleSave,
-    isSaving
+    isSaving,
   };
 }

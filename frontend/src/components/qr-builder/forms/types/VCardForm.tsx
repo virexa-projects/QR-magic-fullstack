@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { VCardValue } from "@/lib/qr-types/schema";
 import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
+import { toast } from "sonner";
 
 interface Props { value: VCardValue; onChange: (v: VCardValue) => void; errors?: Record<string, string> }
 
@@ -38,16 +39,36 @@ function socialIcon(label: string) {
 export default function VCardForm({ value, onChange, errors }: Props) {
   const set = <K extends keyof VCardValue>(k: K, v: VCardValue[K]) => onChange({ ...value, [k]: v });
 
-  // No upload here anymore — just hold the raw File. The actual Cloudinary
-  // upload happens once, in CreateContent.tsx's handleSave via
-  // uploadPendingFiles(), right before the QR is created. This preview
-  // renders a local blob URL in the meantime via useFilePreviewUrl.
-  const handleAvatarPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    set("avatarUrl", file as any);
-    e.target.value = "";
-  };
+  const AVATAR_MAX_SIZE_MB = 3;
+const AVATAR_ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"];
+const AVATAR_ACCEPTED_EXT = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+
+const handleAvatarPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // reset input so picking the same rejected file again re-fires onChange
+  if (!file) return;
+
+  const hasValidType = AVATAR_ACCEPTED_TYPES.includes(file.type);
+  const hasValidExt = AVATAR_ACCEPTED_EXT.some((ext) => file.name.toLowerCase().endsWith(ext));
+
+  if (!hasValidType && !hasValidExt) {
+    toast.error("Unsupported file type", {
+      description: "Please choose a PNG, JPG, WEBP, or GIF image.",
+    });
+    console.warn("Avatar rejected: unsupported type", file.type, file.name);
+    return;
+  }
+
+  if (file.size > AVATAR_MAX_SIZE_MB * 1024 * 1024) {
+    toast.error("File is too large", {
+      description: `Max size is ${AVATAR_MAX_SIZE_MB}MB — this file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`,
+    });
+    console.warn("Avatar rejected: too large", file.size);
+    return;
+  }
+
+  set("avatarUrl", file as any);
+};
 
   // value.avatarUrl may be a real URL string (existing/edited QR) or a
   // raw File (freshly picked, not yet uploaded) — this hook handles both.

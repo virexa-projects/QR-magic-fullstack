@@ -41,3 +41,15 @@ export const googleAuthSchema = z.object({
     credential: z.string().min(10, "Google credential is required"),
   }),
 });
+export const verifyEmailSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+    token: z.string().min(32),
+  }),
+});
+
+export const resendVerificationSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+  }),
+});

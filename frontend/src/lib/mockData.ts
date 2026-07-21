@@ -8,7 +8,7 @@ export interface QRDesign {
   eyeColor?: string;
   dotStyle: "square" | "rounded" | "dots" | "classy" | "classy-rounded" | "extra-rounded";
   frame: "none" | "rounded" | "scan-me" | "badge" | "pill-bottom" | "ribbon" | "polaroid" | "browser" | "ticket" | "neon-glow";
-  logo?: string;
+  logo?: string | File;
 
   useGradient?: boolean;
   gradientType?: "linear" | "radial";

@@ -11,18 +11,33 @@ import {
   updateMeSchema,
   changePasswordSchema,
   googleAuthSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
 } from "@validators/auth.validator";
 
 const router = Router();
 
 router.post("/register", authRateLimiter, validate(registerSchema), authController.register);
 router.post("/login", authRateLimiter, validate(loginSchema), authController.login);
-router.post("/google",authRateLimiter,validate(googleAuthSchema),authController.googleAuth);
+router.post("/google", authRateLimiter, validate(googleAuthSchema), authController.googleAuth);
 router.post("/refresh", validate(refreshSchema), authController.refresh);
 router.post("/logout", authController.logout);
 router.post("/logout-all", authenticate, authController.logoutAll);
 
-// NOTE: The /me endpoint should generally be accessible by ALL logged-in users, 
+router.post(
+  "/verify-email",
+  authRateLimiter,
+  validate(verifyEmailSchema),
+  authController.verifyEmail
+);
+router.post(
+  "/resend-verification",
+  authRateLimiter,
+  validate(resendVerificationSchema),
+  authController.resendVerification
+);
+
+// NOTE: The /me endpoint should generally be accessible by ALL logged-in users,
 // otherwise normal users won't be able to log in or use the dashboard.
 // We've added UserRole.USER here so that it doesn't break your frontend.
 router.get("/me", authenticate, authorizeRoles(UserRole.USER, UserRole.ADMIN, UserRole.SUPERADMIN), authController.me);

@@ -52,7 +52,7 @@ export default function RegisterPage() {
 
     const resultAction = await dispatch(registerUser(result.data));
     if (registerUser.fulfilled.match(resultAction)) {
-      router.push("/dashboard");
+       router.push("/verify-email");
     }
   };
 

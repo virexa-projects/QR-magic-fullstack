@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import jsPDF from "jspdf";
 import type { QRDesign } from "@/lib/mockData";
 import FramedPreview from "@/components/qr/FramedPreview";
-
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 interface Props {
   value: string;
   design: QRDesign;
@@ -30,7 +30,7 @@ export default function DownloadPopover({ value, design, filename, trigger }: Pr
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   const safeName = filename.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "qrcode";
-
+const logoPreviewUrl = useFilePreviewUrl(design.logo as any);
   const buildOptions = () => ({
     width: size,
     height: size,
@@ -61,7 +61,7 @@ export default function DownloadPopover({ value, design, filename, trigger }: Pr
       type: design.cornersDotStyle as any,
       color: design.eyeColor || design.fgColor,
     },
-    image: design.logo || undefined,
+   image: logoPreviewUrl || undefined,
     imageOptions: {
       crossOrigin: "anonymous" as const,
       margin: 4,

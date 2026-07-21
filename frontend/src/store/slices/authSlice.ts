@@ -15,6 +15,7 @@ export interface User {
   email: string;
   role: UserRole;
   isActive: boolean;
+  isVerified: boolean;
   avatar?: string;
   currentPlan?: any;
 }
@@ -24,6 +25,8 @@ interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
+  verifyingEmail: boolean;
+  resendingVerification: boolean;
 }
 
 const initialState: AuthState = {
@@ -31,6 +34,8 @@ const initialState: AuthState = {
   isAuthenticated: false,
   loading: true, // Initially true while we verify session on app load
   error: null,
+  verifyingEmail: false,
+  resendingVerification: false,
 };
 
 export const fetchCurrentUser = createAsyncThunk(
@@ -38,8 +43,6 @@ export const fetchCurrentUser = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const response = await api.get("/auth/me");
-      // Optionally, if your /me endpoint returns a fresh accessToken, you could set it here:
-      // if (response.data.data.accessToken) setAccessToken(response.data.data.accessToken);
       return response.data.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message);
@@ -49,7 +52,7 @@ export const fetchCurrentUser = createAsyncThunk(
 
 export const loginUser = createAsyncThunk(
   "auth/loginUser",
-  async (credentials: any, { rejectWithValue, dispatch }) => {
+  async (credentials: any, { rejectWithValue }) => {
     try {
       const response = await api.post("/auth/login", credentials);
       const { user, accessToken } = response.data.data;
@@ -96,6 +99,7 @@ export const logoutUser = createAsyncThunk(
     }
   }
 );
+
 export const googleLogin = createAsyncThunk(
   "auth/googleLogin",
   async (credential: string, { rejectWithValue }) => {
@@ -107,6 +111,42 @@ export const googleLogin = createAsyncThunk(
       return user;
     } catch (error: any) {
       const message = error.response?.data?.message || "Google sign-in failed";
+      toast.error(message);
+      return rejectWithValue(message);
+    }
+  }
+);
+
+/**
+ * Confirms a user's email using the token + email pair from the emailed
+ * verification link. Does NOT touch access tokens or session state — the
+ * user may click this link on a different device/browser than the one
+ * they registered on, so we only patch `user.isVerified` if a session
+ * already happens to be loaded for that same account.
+ */
+export const verifyEmail = createAsyncThunk(
+  "auth/verifyEmail",
+  async ({ email, token }: { email: string; token: string }, { rejectWithValue }) => {
+    try {
+      const response = await api.post("/auth/verify-email", { email, token });
+      toast.success(response.data.message || "Email verified successfully");
+      return response.data.data.user as User;
+    } catch (error: any) {
+      const message = error.response?.data?.message || "Verification failed";
+      return rejectWithValue(message);
+    }
+  }
+);
+
+export const resendVerification = createAsyncThunk(
+  "auth/resendVerification",
+  async (email: string, { rejectWithValue }) => {
+    try {
+      const response = await api.post("/auth/resend-verification", { email });
+      toast.success(response.data.message || "Verification email sent");
+      return true;
+    } catch (error: any) {
+      const message = error.response?.data?.message || "Failed to resend verification email";
       toast.error(message);
       return rejectWithValue(message);
     }
@@ -125,7 +165,7 @@ const authSlice = createSlice({
       state.user = null;
       state.isAuthenticated = false;
       state.loading = false;
-    }
+    },
   },
   extraReducers: (builder) => {
     // fetchCurrentUser
@@ -140,12 +180,10 @@ const authSlice = createSlice({
       state.isAuthenticated = true;
       state.loading = false;
     });
-    builder.addCase(fetchCurrentUser.rejected, (state, action) => {
+    builder.addCase(fetchCurrentUser.rejected, (state) => {
       state.user = null;
       state.isAuthenticated = false;
       state.loading = false;
-      // We don't necessarily want to toast an error here since it runs on every reload 
-      // and failing just means they aren't logged in.
     });
 
     // loginUser
@@ -162,6 +200,7 @@ const authSlice = createSlice({
       state.loading = false;
       state.error = action.payload;
     });
+
     // googleLogin
     builder.addCase(googleLogin.pending, (state) => {
       state.loading = true;
@@ -176,6 +215,7 @@ const authSlice = createSlice({
       state.loading = false;
       state.error = action.payload;
     });
+
     // registerUser
     builder.addCase(registerUser.pending, (state) => {
       state.loading = true;
@@ -196,6 +236,35 @@ const authSlice = createSlice({
       state.user = null;
       state.isAuthenticated = false;
       state.loading = false;
+    });
+
+    // verifyEmail
+    builder.addCase(verifyEmail.pending, (state) => {
+      state.verifyingEmail = true;
+    });
+    builder.addCase(verifyEmail.fulfilled, (state, action: PayloadAction<User>) => {
+      state.verifyingEmail = false;
+      // Always trust the server response here — don't gate on whether a
+      // session was already loaded. If a session exists for this account,
+      // sync it immediately; if not, fetchCurrentUser (dispatched by the
+      // page below) will pick it up on next load.
+      if (state.user && state.user._id === action.payload._id) {
+        state.user.isVerified = true;
+      }
+    });
+    builder.addCase(verifyEmail.rejected, (state) => {
+      state.verifyingEmail = false;
+    });
+
+    // resendVerification
+    builder.addCase(resendVerification.pending, (state) => {
+      state.resendingVerification = true;
+    });
+    builder.addCase(resendVerification.fulfilled, (state) => {
+      state.resendingVerification = false;
+    });
+    builder.addCase(resendVerification.rejected, (state) => {
+      state.resendingVerification = false;
     });
   },
 });

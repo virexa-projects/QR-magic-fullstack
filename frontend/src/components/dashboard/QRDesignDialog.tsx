@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import QRCodeStyling from "qr-code-styling";
-import { toPng } from "html-to-image"; // Import html-to-image
+import { toPng } from "html-to-image";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,13 +12,17 @@ import { Sparkles, Wand2, Shuffle, AlertTriangle, CheckCircle2, Zap, Download } 
 import type { QRDesign } from "@/lib/mockData";
 import { calculateQrStrength, generateHarmoniousGradient, randomHex } from "@/lib/qrDesignUtils";
 import { useDispatch } from "react-redux";
+
 interface Props {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   initial: QRDesign;
   qrValue: string;
   qrName: string;
-  onSave: (d: QRDesign, logoFile?: File | null) => void;
+  // Returns true on API success, false on failure. The dialog awaits this
+  // and only closes itself when it resolves true — on false it stays open
+  // so the user can retry without losing their edits.
+  onSave: (d: QRDesign, logoFile?: File | null) => Promise<boolean>;
 }
 
 const PRESETS: { name: string; design: Partial<QRDesign> }[] = [
@@ -97,11 +101,12 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
   const dispatch = useDispatch();
   const [design, setDesign] = useState<QRDesign>(() => withDefaults(initial));
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [holderNode, setHolderNode] = useState<HTMLDivElement | null>(null);
   const holderRef = useCallback((node: HTMLDivElement | null) => setHolderNode(node), []);
   const qrInstanceRef = useRef<QRCodeStyling | null>(null);
-  
+
   // Ref to capture the entire FramedPreview DOM node
   const previewRef = useRef<HTMLDivElement | null>(null);
 
@@ -118,6 +123,13 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
 
   const buildOptions = () => {
     const d = withDefaults(design);
+    // d.logo is always a string here (set via FileReader as base64 for
+    // preview), but QRDesign.logo's type is `string | File | undefined`
+    // (other components can store a raw File there), so narrow it
+    // explicitly — qr-code-styling's `image` option only accepts
+    // `string | undefined`, never a File.
+    const logoSrc = typeof d.logo === "string" && d.logo.length > 0 ? d.logo : undefined;
+
     return {
       width: 180,
       height: 180,
@@ -127,21 +139,21 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
       qrOptions: { errorCorrectionLevel: d.errorCorrectionLevel },
       dotsOptions: d.useGradient
         ? {
-            type: d.dotStyle,
-            gradient: {
-              type: d.gradientType,
-              rotation: (d.gradientRotation * Math.PI) / 180,
-              colorStops: [
-                { offset: 0, color: d.gradientColors[0] },
-                { offset: 1, color: d.gradientColors[1] },
-              ],
-            },
-          }
+          type: d.dotStyle,
+          gradient: {
+            type: d.gradientType,
+            rotation: (d.gradientRotation * Math.PI) / 180,
+            colorStops: [
+              { offset: 0, color: d.gradientColors[0] },
+              { offset: 1, color: d.gradientColors[1] },
+            ],
+          },
+        }
         : { type: d.dotStyle, color: d.fgColor },
       backgroundOptions: { color: d.bgColor },
       cornersSquareOptions: { type: d.cornersSquareStyle, color: d.eyeColor || d.fgColor },
       cornersDotOptions: { type: d.cornersDotStyle, color: d.eyeColor || d.fgColor },
-      image: d.logo || undefined,
+      image: logoSrc,
       imageOptions: {
         crossOrigin: "anonymous" as const,
         margin: 4,
@@ -166,26 +178,36 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, holderNode, design, qrValue]);
 
-  const handleSave = () => {
-    onSave(design, logoFile);
-    onOpenChange(false);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const success = await onSave(design, logoFile);
+      if (success) {
+        onOpenChange(false);
+      }
+      // On failure the parent is responsible for surfacing a toast/error;
+      // keep the dialog open so the user can retry without losing edits.
+    } catch (err) {
+      console.error("QR design save failed:", err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // UPDATED: Capture and download the actual DOM element containing the Frame
+  // Capture and download the actual DOM element containing the Frame
   const handleDownloadPng = async () => {
     if (!previewRef.current) return;
 
     try {
-      // Capture the element styling at high quality (devicePixelRatio scales up the resolution)
       const dataUrl = await toPng(previewRef.current, {
         quality: 1.0,
-        pixelRatio: 3, // Multiplies resolution for crisp, high-res prints
+        pixelRatio: 3,
         style: {
-          transform: "scale(1)", // Reset any scale transforms during capture
-        }
+          transform: "scale(1)",
+        },
       });
 
-      // Programmatic click trigger to download
       const link = document.createElement("a");
       link.download = qrName ? `${qrName.replace(/\s+/g, "-").toLowerCase()}-framed.png` : "qr-code-framed.png";
       link.href = dataUrl;
@@ -244,7 +266,7 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => !isSaving && onOpenChange(o)}>
       <DialogContent className="max-w-4xl p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
           <DialogTitle className="text-base font-bold">Customize design — {qrName}</DialogTitle>
@@ -447,7 +469,6 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
 
           {/* Live preview */}
           <div className="bg-secondary/30 border-l border-border p-6 flex flex-col items-center justify-center gap-4">
-            {/* Added ref={previewRef} here to capture the entire wrapper */}
             <div ref={previewRef}>
               <FramedPreview frame={frame} frameColor={frameColor} frameText={design.frameText ?? "SCAN ME"} bgColor={design.bgColor}>
                 <div ref={holderRef} style={{ width: 180, height: 180 }} />
@@ -472,12 +493,16 @@ export default function QRDesignDialog({ open, onOpenChange, initial, qrValue, q
 
         {/* Dialog Footer */}
         <DialogFooter className="px-6 py-3 border-t border-border bg-card flex justify-between items-center">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            Cancel
+          </Button>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={handleDownloadPng} className="gap-2">
+            <Button variant="secondary" onClick={handleDownloadPng} className="gap-2" disabled={isSaving}>
               <Download className="w-4 h-4" /> Download PNG
             </Button>
-            <Button onClick={handleSave} className="bg-primary text-primary-foreground hover:bg-primary/90">Save design</Button>
+            <Button onClick={handleSave} disabled={isSaving} className="bg-primary text-primary-foreground hover:bg-primary/90">
+              {isSaving ? "Saving..." : "Save design"}
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>
@@ -497,26 +522,26 @@ function FramedPreview({
 
   const outerClass =
     frame === "none" ? "inline-flex flex-col items-center" :
-    frame === "polaroid" ? "inline-flex flex-col items-center bg-white p-3 pb-6 shadow-lg rotate-[-1deg]" :
-    frame === "neon-glow" ? "inline-flex flex-col items-center rounded-2xl" :
-    frame === "badge" ? "inline-flex flex-col items-center gap-2 p-4 rounded-3xl border-4" :
-    "inline-flex flex-col items-center rounded-2xl overflow-hidden border-2";
+      frame === "polaroid" ? "inline-flex flex-col items-center bg-white p-3 pb-6 shadow-lg rotate-[-1deg]" :
+        frame === "neon-glow" ? "inline-flex flex-col items-center rounded-2xl" :
+          frame === "badge" ? "inline-flex flex-col items-center gap-2 p-4 rounded-3xl border-4" :
+            "inline-flex flex-col items-center rounded-2xl overflow-hidden border-2";
 
   const outerStyle: React.CSSProperties =
     frame === "none" ? {} :
-    frame === "polaroid" ? { boxShadow: "0 8px 20px rgba(0,0,0,0.15)" } :
-    frame === "neon-glow" ? {
-      border: `2px solid ${frameColor}`,
-      boxShadow: `0 0 12px ${frameColor}99, 0 0 28px ${frameColor}55, inset 0 0 10px ${frameColor}33`,
-    } :
-    { borderColor: frameColor };
+      frame === "polaroid" ? { boxShadow: "0 8px 20px rgba(0,0,0,0.15)" } :
+        frame === "neon-glow" ? {
+          border: `2px solid ${frameColor}`,
+          boxShadow: `0 0 12px ${frameColor}99, 0 0 28px ${frameColor}55, inset 0 0 10px ${frameColor}33`,
+        } :
+          { borderColor: frameColor };
 
   const qrSlotClass =
     frame === "polaroid" ? "p-2" :
-    frame === "ticket" ? "relative flex items-stretch border-2 border-dashed rounded-xl overflow-hidden" :
-    frame === "ribbon" ? "relative p-4 rounded-xl border" :
-    frame === "rounded" ? "p-4 rounded-2xl border-2" :
-    "p-4";
+      frame === "ticket" ? "relative flex items-stretch border-2 border-dashed rounded-xl overflow-hidden" :
+        frame === "ribbon" ? "relative p-4 rounded-xl border" :
+          frame === "rounded" ? "p-4 rounded-2xl border-2" :
+            "p-4";
 
   const qrSlotStyle: React.CSSProperties =
     frame === "ticket" || frame === "ribbon" || frame === "rounded"

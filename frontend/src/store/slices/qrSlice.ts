@@ -13,7 +13,8 @@ export type QrType =
   | "phone"
   | "sms"
   | "feedback" 
-  | "location";
+  | "location"
+  | "feedback"; // <-- new type
 
 export type QrStatus = "active" | "paused" | "archived" | "expired";
 
@@ -185,9 +186,12 @@ export const fetchQrById = createAsyncThunk(
  */
 export const createQr = createAsyncThunk(
   "qr/create",
-  async (payload: Record<string, any>, { rejectWithValue }) => {
+  async (payload: FormData | Record<string, any>, { rejectWithValue }) => {
     try {
-      const res = await api.post("/qr", payload);
+      const isFormData = payload instanceof FormData;
+      const res = await api.post("/qr", payload, {
+        headers: isFormData ? { "Content-Type": "multipart/form-data" } : undefined,
+      });
       // Backend returns: { success, message, data: { qr, shortUrl, imageDataUrl } }
       return { data: res.data.data.qr as QrCode, toastMessage: res.data.message as string };
     } catch (err: any) {

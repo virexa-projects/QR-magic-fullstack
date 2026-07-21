@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import QRCodeStyling from "qr-code-styling";
 import { QRDesign } from "@/lib/mockData";
 import FramedPreview from "@/components/qr/FramedPreview";
+import { useFilePreviewUrl } from "@/hooks/useFilePreviewUrl";
 
 interface Props {
   value: string;
@@ -18,17 +19,18 @@ export default function StyledQrPreview({
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
+  const logoPreviewUrl = useFilePreviewUrl(design.logo as any);
+
   useEffect(() => {
     if (!ref.current) return;
 
     ref.current.innerHTML = "";
-
     const qr = new QRCodeStyling({
       width: size,
       height: size,
-      type: "svg", // explicit, matches Step3Qr's own preview instance
+      type: "svg",
       data: value,
-      image: design.logo || undefined,
+      image: logoPreviewUrl || undefined,
       qrOptions: {
         errorCorrectionLevel: design.errorCorrectionLevel || "Q",
       },
@@ -66,7 +68,13 @@ export default function StyledQrPreview({
     });
 
     qr.append(ref.current);
-  }, [value, design, size]);
+    // logoPreviewUrl is resolved asynchronously by useFilePreviewUrl (it
+    // converts a File to an object/data URL). It must be an explicit
+    // dependency here — otherwise the QR only picks up the resolved logo
+    // the next time `design` or `size` happens to change for some other
+    // reason (e.g. moving the logo-size slider), not as soon as the URL
+    // is actually ready.
+  }, [value, design, size, logoPreviewUrl]);
 
   return (
     <FramedPreview

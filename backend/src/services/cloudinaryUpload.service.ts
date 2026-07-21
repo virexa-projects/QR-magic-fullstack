@@ -30,3 +30,10 @@ export function uploadBufferToCloudinary(
     Readable.from(buffer).pipe(stream);
   });
 }
+
+export function deleteFromCloudinary(
+  publicId: string,
+  resourceType: "image" | "video" | "raw" = "image"
+) {
+  return cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+}

@@ -185,6 +185,14 @@ const FIELD_CONFIG: Record<QrType, { key: string; label: string; placeholder: st
     { key: "role", label: "Job title / role", placeholder: "Marketing Manager" },
     { key: "company", label: "Company", placeholder: "Your Company" },
   ],
+  feedback: [
+    {
+      key: "url",
+      label: "Feedback URL",
+      placeholder: "https://yourdomain.com/feedback",
+      type: "url",
+    },
+  ],
 };
 
 function CodesInner() {
@@ -267,23 +275,28 @@ function CodesInner() {
     }
   };
 
-  const saveDesign = async (d: QrDesign, logoFile?: File | null) => {
-    if (!designing) return;
-    try {
-      if (logoFile) {
-        const fd = new FormData();
-        fd.append("logo", logoFile); // binary, matches uploadLogo.single("logo")
-        // other design fields must go as strings/JSON — multer won't parse nested objects
-        fd.append("design", JSON.stringify({ ...d, logo: undefined })); // let backend fill logo URL
-        await dispatch(updateQr({ id: designing._id, data: fd })).unwrap();
-      } else {
-        await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
-      }
-      setDesigning(null);
-    } catch {
-      // updateQr thunk already toasts the error
+  const saveDesign = async (d: QRDesign, logoFile?: File | null): Promise<boolean> => {
+  if (!designing) return false;
+  try {
+    if (logoFile) {
+      const fd = new FormData();
+      fd.append("logo", logoFile); // binary, matches uploadLogo.single("logo")
+      // other design fields must go as strings/JSON — multer won't parse nested objects
+      fd.append("design", JSON.stringify({ ...d, logo: undefined })); // let backend fill logo URL
+      await dispatch(updateQr({ id: designing._id, data: fd })).unwrap();
+    } else {
+      // d.logo is `string | File | undefined` on QRDesign (mockData), but when
+      // there's no logoFile it's always a string/undefined in practice — safe
+      // to hand off to the QrDesign-typed (slice) thunk payload.
+      await dispatch(updateQr({ id: designing._id, data: { design: d as unknown as QrDesign } })).unwrap();
     }
-  };
+    setDesigning(null);
+    return true;
+  } catch {
+    // updateQr thunk already toasts the error
+    return false;
+  }
+};
 
   const deleteItem = async (id: string) => {
     try {

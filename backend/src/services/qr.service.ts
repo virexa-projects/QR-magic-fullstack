@@ -1,6 +1,5 @@
+// services/qr.service.ts
 import { FilterQuery } from "mongoose";
-import fs from "fs/promises";
-import path from "path";
 import { QRCode, IQRCode } from "@models/QRCode.model";
 import { ApiError } from "@utils/ApiError";
 import { generateShortCode } from "@utils/shortCode";
@@ -10,7 +9,7 @@ import { env } from "@config/env";
 import { QRType, QRStatus } from "@app-types/enums";
 import { User } from "@models/User.model";
 import { Plan, IPlan } from "@models/Plan.model";
-import { LOGO_DIR } from "@middlewares/upload.middleware";
+import { deleteFromCloudinary } from "@services/cloudinaryUpload.service";
 
 interface CreateQrInput {
   name: string;
@@ -66,13 +65,32 @@ async function validateSubscriptionAndLimits(
   }
 }
 
-function deleteLocalLogoIfOwned(logoUrl?: string | null) {
-  if (!logoUrl) return;
-  const prefix = `${env.API_BASE_URL}/uploads/logos/`;
-  if (!logoUrl.startsWith(prefix)) return;
-  const filename = logoUrl.slice(prefix.length);
-  if (!filename || filename.includes("/") || filename.includes("..")) return;
-  fs.unlink(path.join(LOGO_DIR, filename)).catch(() => {});
+/**
+ * Deletes a previously-uploaded logo from Cloudinary when it's replaced
+ * or the QR is deleted. Only acts on URLs that actually belong to our
+ * Cloudinary account and the "qrbharat/" folder namespace used by
+ * uploadBufferToCloudinary — anything else (empty, external, or already
+ * cleared) is skipped. Best-effort: failures are swallowed since this
+ * is cleanup, not a critical path.
+ */
+function deleteCloudinaryLogoIfOwned(logoUrl?: string | null) {
+  if (!logoUrl || typeof logoUrl !== "string") return;
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  if (!cloudName || !logoUrl.includes(`res.cloudinary.com/${cloudName}/`)) return;
+
+  // Cloudinary secure_url shape:
+  // https://res.cloudinary.com/<cloud>/image/upload/v169.../qrbharat/logos/abc123.png
+  // public_id is everything after the version segment, minus the extension —
+  // and it includes the "qrbharat/logos/" folder prefix since that's part
+  // of the id we got back from uploadBufferToCloudinary.
+  const match = logoUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+$/);
+  if (!match) return;
+
+  const publicId = match[1];
+  if (!publicId.startsWith("qrbharat/")) return;
+
+  deleteFromCloudinary(publicId, "image").catch(() => {});
 }
 
 /**
@@ -269,7 +287,7 @@ export async function updateQr(
   if (updates.design) {
     const incomingLogo = (updates.design as any).logo;
     if (incomingLogo !== qr.design.logo) {
-      deleteLocalLogoIfOwned(qr.design.logo);
+      deleteCloudinaryLogoIfOwned(qr.design.logo);
     }
     qr.design = { ...qr.design, ...updates.design } as IQRCode["design"];
   }
@@ -283,7 +301,7 @@ export async function updateQr(
 
 export async function deleteQr(ownerId: string, id: string, isPrivileged = false) {
   const qr = await getQrById(ownerId, id, isPrivileged);
-  deleteLocalLogoIfOwned(qr.design?.logo);
+  deleteCloudinaryLogoIfOwned(qr.design?.logo);
   await qr.deleteOne();
   await cacheInvalidate(`qr:list:${ownerId}`, true);
   await cacheInvalidate(`qr:redirect:${qr.shortCode}`);

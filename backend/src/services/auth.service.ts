@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { User, IUser } from "@models/User.model";
 import { RefreshToken } from "@models/RefreshToken.model";
@@ -12,10 +13,74 @@ import { redisClient } from "@config/redis";
 import { env } from "@config/env";
 import { UserRole } from "@app-types/enums";
 import * as billingService from "@services/billing.service";
+import { sendVerificationEmail } from "@services/email.service";
+
 interface DeviceInfo {
   userAgent?: string;
   ip?: string;
 }
+
+// ────────────────────────────── Email verification ──────────────────────────────
+
+function hashToken(raw: string): string {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+function generateVerificationToken(): { raw: string; hash: string; expires: Date } {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const hash = hashToken(raw);
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  return { raw, hash, expires };
+}
+
+/** Issues a fresh verification token, stores its hash, and emails the link. */
+export async function sendEmailVerification(user: IUser) {
+  const { raw, hash, expires } = generateVerificationToken();
+
+  user.emailVerificationTokenHash = hash;
+  user.emailVerificationExpires = expires;
+  await user.save();
+
+  const verifyUrl = `${env.FRONTEND_URL}/verify-email?token=${raw}&email=${encodeURIComponent(user.email)}`;
+  await sendVerificationEmail(user.email, user.name, verifyUrl);
+}
+
+export async function verifyEmailToken(email: string, rawToken: string) {
+  const user = await User.findOne({ email: email.toLowerCase() }).select(
+    "+emailVerificationTokenHash +emailVerificationExpires"
+  );
+  if (!user) throw ApiError.badRequest("Invalid verification link");
+  if (user.isVerified) return user; // idempotent — clicking the link twice is fine
+
+  if (!user.emailVerificationTokenHash || !user.emailVerificationExpires) {
+    throw ApiError.badRequest("No pending verification for this account");
+  }
+  if (user.emailVerificationExpires < new Date()) {
+    throw ApiError.badRequest("Verification link has expired. Please request a new one.");
+  }
+
+  const incomingHash = hashToken(rawToken);
+  if (incomingHash !== user.emailVerificationTokenHash) {
+    throw ApiError.badRequest("Invalid verification link");
+  }
+
+  user.isVerified = true;
+  user.emailVerificationTokenHash = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save();
+
+  return user;
+}
+
+export async function resendVerificationEmail(email: string) {
+  const user = await User.findOne({ email: email.toLowerCase() });
+  if (!user) throw ApiError.notFound("No account found with this email");
+  if (user.isVerified) throw ApiError.badRequest("This email is already verified");
+
+  await sendEmailVerification(user);
+}
+
+// ────────────────────────────── Tokens / sessions ──────────────────────────────
 
 function refreshExpiryDate(): Date {
   // JWT_REFRESH_EXPIRES_IN is like "30d" - convert to ms manually to avoid extra deps
@@ -52,6 +117,8 @@ export async function issueTokenPair(user: IUser, device: DeviceInfo) {
   return { accessToken, refreshToken };
 }
 
+// ────────────────────────────── Register / login ──────────────────────────────
+
 export async function registerUser(input: {
   name: string;
   email: string;
@@ -78,6 +145,7 @@ export async function registerUser(input: {
     role: UserRole.USER,
     currentPlan: freePlan._id,
   });
+
   // Automatically activate the Free subscription
   await billingService.subscribeUserToPlan(
     user._id.toString(),
@@ -88,7 +156,14 @@ export async function registerUser(input: {
       autoRenew: false,
     }
   );
+
   const tokens = await issueTokenPair(user, device);
+
+  // Fire-and-forget: don't let a mail-provider outage block registration.
+  sendEmailVerification(user).catch((err) => {
+    console.error("Failed to send verification email:", err);
+  });
+
   return { user, ...tokens };
 }
 

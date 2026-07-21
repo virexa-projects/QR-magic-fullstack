@@ -10,19 +10,21 @@ import {
   revokeRefreshToken,
   revokeAllSessions,
   blacklistAccessToken,
+  verifyEmailToken,
+  resendVerificationEmail,
 } from "@services/auth.service";
 import { User } from "@models/User.model";
 import { loginOrRegisterWithGoogle } from "@services/googleAuth.service";
+
 const REFRESH_COOKIE = "refreshToken";
 const ACCESS_COOKIE = "accessToken";
 
 function cookieOptions(maxAgeMs: number) {
   return {
     httpOnly: true,
-    secure: env.isProd, // true in production HTTPS
+    secure: env.isProd,
     sameSite: env.isProd ? ("none" as const) : ("lax" as const),
-    // domain: env.isProd ? env.COOKIE_DOMAIN : undefined,
-     path: "/",
+    path: "/",
     maxAge: maxAgeMs,
   };
 }
@@ -39,7 +41,7 @@ export const register = catchAsync(async (req: Request, res: Response) => {
     { userAgent: req.headers["user-agent"], ip: req.ip }
   );
   setAuthCookies(res, accessToken, refreshToken);
-  sendSuccess(res, 201, "Account created successfully", { user, accessToken });
+  sendSuccess(res, 201, "Account created successfully. Please check your email to verify your account.", { user, accessToken });
 });
 
 export const login = catchAsync(async (req: Request, res: Response) => {
@@ -138,6 +140,7 @@ export const changePassword = catchAsync(async (req: Request, res: Response) => 
   res.clearCookie(REFRESH_COOKIE);
   sendSuccess(res, 200, "Password changed. Please log in again.");
 });
+
 export const googleAuth = catchAsync(async (req: Request, res: Response) => {
   const { credential } = req.body;
   const { user, accessToken, refreshToken } = await loginOrRegisterWithGoogle(credential, {
@@ -151,4 +154,16 @@ export const googleAuth = catchAsync(async (req: Request, res: Response) => {
     `Welcome ${user.name}! Signed in successfully with Google.`,
     { user, accessToken }
   );
+});
+
+export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
+  const { email, token } = req.body;
+  const user = await verifyEmailToken(email, token);
+  sendSuccess(res, 200, "Email verified successfully", { user });
+});
+
+export const resendVerification = catchAsync(async (req: Request, res: Response) => {
+  const { email } = req.body;
+  await resendVerificationEmail(email);
+  sendSuccess(res, 200, "Verification email sent. Please check your inbox.");
 });

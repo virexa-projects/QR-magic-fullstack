@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, MapPin, Clock, Smartphone, ChevronDown, Check, QrCode,
-  Link as LinkIcon, MessageSquare, Wifi, User, Mail, Phone, MessageCircle, FileText,
+  Link as LinkIcon, MessageSquare, Wifi, User, Mail, Phone, MessageCircle, FileText,Star
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -39,6 +39,7 @@ const typeIcons: Record<QrType, React.ElementType> = {
   phone: Phone,
   sms: MessageCircle,
   location: MapPin,
+  feedback: Star, // <-- add this
 };
 
 const DEVICE_COLORS: Record<string, string> = {

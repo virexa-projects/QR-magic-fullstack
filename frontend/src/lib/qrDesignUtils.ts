@@ -78,7 +78,7 @@ export interface QrDesignLike {
   useGradient?: boolean;
   gradientColors?: [string, string];
   dotStyle: string;
-  logo?: string;
+   logo?: string | File; 
   logoSize?: number;
   errorCorrectionLevel?: "L" | "M" | "Q" | "H";
 }

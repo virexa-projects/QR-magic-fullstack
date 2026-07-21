@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "sonner";
 import type { AppDispatch, RootState } from "@/store";
-import { updateQr } from "@/store/slices/qrSlice";
+import { updateQr, QrDesign } from "@/store/slices/qrSlice";
 import type { QrCode, QRDesign, EditableFields } from "../codes.types";
 import { getEditableFields, buildDestination } from "../codes.utils";
 
@@ -57,8 +57,8 @@ export function useCodeActions() {
   const openDesign = (q: QrCode) => setDesigning(q);
   const closeDesign = () => setDesigning(null);
 
-  const saveDesign = async (d: QRDesign, logoFile?: File | null) => {
-    if (!designing) return;
+  const saveDesign = async (d: QRDesign, logoFile?: File | null): Promise<boolean> => {
+    if (!designing) return false;
     try {
       if (logoFile) {
         const fd = new FormData();
@@ -67,11 +67,15 @@ export function useCodeActions() {
         fd.append("design", JSON.stringify({ ...d, logo: undefined })); // let backend fill logo URL
         await dispatch(updateQr({ id: designing._id, data: fd })).unwrap();
       } else {
-        await dispatch(updateQr({ id: designing._id, data: { design: d } })).unwrap();
+        // d.logo is string | File | undefined on QRDesign, but with no logoFile
+        // it's always string/undefined in practice — safe for the QrDesign-typed payload.
+        await dispatch(updateQr({ id: designing._id, data: { design: d as unknown as QrDesign } })).unwrap();
       }
       setDesigning(null);
+      return true;
     } catch {
       // updateQr thunk already toasts the error
+      return false;
     }
   };
 

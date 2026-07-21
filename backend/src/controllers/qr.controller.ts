@@ -7,7 +7,7 @@ import { recordClick, recordScan } from "@services/Scantracking.service";
 import { hasScanQuotaRemaining, incrementScanUsage } from "@services/scanQuota.service";
 import { UserRole, QRType } from "@app-types/enums";
 import { env } from "@config/env";
-import { buildVCardString } from "@utils/vcard.util";
+
 
 export const create = catchAsync(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
